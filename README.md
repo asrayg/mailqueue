@@ -1,0 +1,136 @@
+# MailQueue
+
+Controlled, scheduled, multi-provider email outreach via browser automation.
+
+MailQueue sends the same (or lightly personalized) email to many recipients
+across **Gmail, Outlook, and Zoho Mail** — gradually, within a sending window,
+with randomized delays and hard caps — instead of blasting everyone at once.
+It drives the real web UI through **Playwright** using your own logged-in
+session, so there are no SMTP passwords and no API keys.
+
+> **This is for legitimate cold outreach and follow-ups — not spam.** MailQueue
+> never bypasses CAPTCHAs, 2FA, or provider anti-abuse systems. If it detects a
+> CAPTCHA, security warning, logout, or repeated failures, it **pauses** the
+> campaign.
+
+---
+
+## Features
+
+- Gmail / Outlook / Zoho via a clean **provider adapter** pattern
+- CSV import with validation, de-duplication, and `{{variable}}` templating
+- **Preview + explicit confirmation** before anything sends
+- **Test-send to yourself** before a real campaign
+- Gradual scheduler: sending window, per-hour/per-day caps, randomized delays
+- Duplicate prevention (in-campaign + cross-campaign contact history)
+- Pause / resume / cancel / retry-failed, full send log + CSV export
+- Auto-pause on CAPTCHA, security warning, logout, or 3 consecutive failures
+
+## Tech stack
+
+Next.js (App Router) · TypeScript · Playwright · SQLite + Prisma · Tailwind ·
+Zod · PapaParse.
+
+---
+
+## Quick start
+
+```bash
+npm install
+npx playwright install chromium
+cp .env.example .env          # set TEST_RECIPIENT_EMAIL to your address
+npm run prisma:migrate        # creates the SQLite DB
+```
+
+Run the dashboard and the worker in two terminals:
+
+```bash
+npm run dev      # http://localhost:3000
+npm run worker   # the process that actually sends, gradually
+```
+
+> Mode 1 (app-controlled scheduling) is the default: the **worker must stay
+> running** for emails to go out. Provider-native "schedule send" (Mode 2) is a
+> future addition.
+
+### First-time provider login
+
+The first time you use a provider, a real browser window opens. **Log in
+manually** (including 2FA) — MailQueue then reuses that persistent session from
+`browser-profiles/<provider>/`. Passwords are never stored.
+
+Smoke-test a provider end to end:
+
+```bash
+npm run test:gmail   # or test:outlook / test:zoho
+```
+
+---
+
+## Typical flow
+
+1. **New Campaign** — name, provider, subject, body, attachments, CSV, sending
+   window, caps, delay range.
+2. **Preview** — recipient count, attachments, first 5 generated emails, missing
+   variable warnings, estimated finish.
+3. **Send Test Email** to yourself.
+4. **Confirm and Start.**
+5. Watch the **dashboard**: pending / scheduled / sent / failed / skipped,
+   next-send estimate, per-recipient status, live log, and pause/resume/cancel.
+
+### CSV format
+
+Requires an `email` column. Optional: `first_name`, `last_name`, `company`, and
+any extra columns (available as `{{column_name}}`). See
+[`examples/contacts.sample.csv`](examples/contacts.sample.csv).
+
+### Template variables
+
+`{{first_name}}`, `{{company}}`, `{{email}}`, plus any CSV column. Missing
+variables render blank and are flagged on the preview screen before you confirm.
+
+---
+
+## Safety defaults
+
+| Setting        | Standard | New account |
+| -------------- | -------- | ----------- |
+| Max per hour   | 10       | 5           |
+| Max per day    | 50       | 25          |
+| Min delay      | 180s     | 300s        |
+| Max delay      | 900s     | 1200s       |
+
+Default sending window: **Mon–Fri, 09:00–16:30, America/Chicago**. No overnight
+or weekend sending unless you change it.
+
+MailQueue **will not**: bypass CAPTCHAs or 2FA, rotate accounts to evade limits,
+scrape inboxes, send to invalid/duplicate/already-contacted addresses, or
+continue after a provider warning.
+
+---
+
+## Project layout
+
+```
+app/                 Next.js pages + server actions
+  campaigns/         list · new · [id] dashboard · [id]/preview · [id]/logs export
+lib/                 db, csv, templates, validation, limits, time, hashing, scheduler
+providers/           types · base · gmail · outlook · zoho · index (adapter pattern)
+worker/sendWorker.ts the gradual send loop (Mode 1)
+prisma/schema.prisma Campaign · Recipient · SendLog · GlobalContactHistory
+scripts/             provider smoke tests
+```
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Next.js dashboard |
+| `npm run worker` | Gradual send worker (must run to send) |
+| `npm run prisma:migrate` | Apply DB migrations |
+| `npm run test:gmail` / `:outlook` / `:zoho` | Provider smoke test |
+
+## Roadmap
+
+- Mode 2: provider-native schedule-send
+- v2 follow-ups (skip on reply / not-interested, max one by default)
