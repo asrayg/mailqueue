@@ -1,0 +1,115 @@
+// MailQueue data model — SQLite via Prisma.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Campaign {
+  id              String   @id @default(cuid())
+  name            String
+  provider        String // "gmail" | "outlook" | "zoho"
+  subjectTemplate String
+  bodyTemplate    String
+
+  // JSON-encoded string[] of absolute attachment paths.
+  attachmentPaths String @default("[]")
+
+  // "draft" | "confirmed" | "running" | "paused" | "completed" | "cancelled"
+  status String @default("draft")
+
+  // Sending window — "HH:mm" 24h local to `timezone`.
+  sendingWindowStart String @default("09:00")
+  sendingWindowEnd   String @default("16:30")
+  timezone           String @default("America/Chicago")
+
+  // Days of week allowed to send, JSON int[] (0=Sun..6=Sat). Default Mon-Fri.
+  sendDaysJson String @default("[1,2,3,4,5]")
+
+  maxPerHour      Int @default(10)
+  maxPerDay       Int @default(50)
+  minDelaySeconds Int @default(180)
+  maxDelaySeconds Int @default(900)
+
+  // Skip recipients contacted within this many days globally. null = never re-contact.
+  recontactAfterDays Int? @default(30)
+
+  // Last serious error that paused the campaign.
+  lastError String?
+
+  // Count of consecutive send failures — campaign pauses at 3.
+  consecutiveFailures Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipients Recipient[]
+  sendLogs   SendLog[]
+
+  @@index([status])
+}
+
+model Recipient {
+  id         String @id @default(cuid())
+  campaignId String
+  email      String
+  firstName  String?
+  lastName   String?
+  company    String?
+
+  // JSON object of extra CSV columns for template substitution.
+  metadataJson String?
+
+  // "pending" | "scheduled" | "sent" | "failed" | "skipped"
+  status String @default("pending")
+
+  scheduledAt   DateTime?
+  sentAt        DateTime?
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sendLogs SendLog[]
+
+  @@index([campaignId, status])
+  @@index([campaignId, email])
+}
+
+model SendLog {
+  id          String @id @default(cuid())
+  campaignId  String
+  recipientId String
+  provider    String
+  subject     String
+  bodyHash    String
+  attachmentHash String
+
+  // "attempted" | "sent" | "scheduled" | "failed" | "skipped"
+  status       String
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  campaign  Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([recipientId])
+}
+
+// Cross-campaign contact history to prevent re-emailing the same person.
+model GlobalContactHistory {
+  id              String   @id @default(cuid())
+  email           String
+  lastContactedAt DateTime
+  campaignId      String
+  subject         String
+  provider        String
+
+  @@index([email])
+}

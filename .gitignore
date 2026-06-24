@@ -1,0 +1,36 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+
+# env
+.env
+.env*.local
+
+# database
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/dev.db*
+
+# playwright browser sessions (contain logged-in cookies — never commit)
+/browser-profiles/
+
+# uploaded attachments / csv
+/uploads/
+
+# typescript
+*.tsbuildinfo
