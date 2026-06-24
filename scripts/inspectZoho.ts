@@ -128,6 +128,36 @@ async function main() {
   console.log("\n=== ACTION BUTTONS ===");
   for (const b of buttons) console.log(JSON.stringify(b));
 
+  // Probe what the "Attachment" button does: file chooser directly, or a menu?
+  console.log("\n=== ATTACHMENT PROBE ===");
+  const attachBtn = page.getByRole("button", { name: "Attachment", exact: true }).first();
+  let chooserFired = false;
+  page.once("filechooser", () => {
+    chooserFired = true;
+    console.log("filechooser fired directly from Attachment button");
+  });
+  if (await attachBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await attachBtn.click().catch((e) => console.log("attach click err:", e.message));
+    await page.waitForTimeout(1500);
+    if (!chooserFired) {
+      // Dump any menu that appeared.
+      const items = await page.$$eval(
+        '[role="menuitem"], [role="menu"] a, [role="menu"] button, .zmAttachMenu *',
+        (els) =>
+          els
+            .map((e) => ({
+              tag: e.tagName.toLowerCase(),
+              name: (e.getAttribute("aria-label") || e.textContent || "").trim().slice(0, 40),
+              visible: (e as HTMLElement).offsetParent !== null,
+            }))
+            .filter((x) => x.visible && x.name)
+      );
+      console.log("menu items after clicking Attachment:");
+      for (const it of items) console.log(JSON.stringify(it));
+    }
+  }
+  await page.screenshot({ path: "/tmp/zoho-attach-menu.png" });
+
   console.log("\nScreenshots: /tmp/zoho-inspect-inbox.png, /tmp/zoho-inspect-compose.png");
   await context.close();
 }

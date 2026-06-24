@@ -38,7 +38,11 @@ export class ZohoProvider extends BaseProvider {
     await to.waitFor({ timeout: 30_000 });
     await to.click();
     await to.fill(input.to);
+    await page.waitForTimeout(400);
     await page.keyboard.press("Enter");
+    // Dismiss any lingering autocomplete dropdown so it can't overlay the
+    // compose toolbar / intercept the Send click.
+    await page.keyboard.press("Escape");
 
     // Subject is an input identified only by its placeholder.
     const subject = page.getByPlaceholder("Subject", { exact: true }).first();
@@ -58,17 +62,36 @@ export class ZohoProvider extends BaseProvider {
   }
 
   protected async uiAttachFiles(page: Page, filePaths: string[]): Promise<void> {
+    // "Attachment" opens a modal (Desktop / My Attachments / Zoho docs / cloud).
+    // On the default "Desktop" tab, "Upload files" triggers the file chooser;
+    // an "Attach" button then confirms and closes the modal.
+    await page.getByRole("button", { name: "Attachment", exact: true }).first().click();
+
     const [fileChooser] = await Promise.all([
       page.waitForEvent("filechooser", { timeout: 20_000 }),
-      page
-        .getByRole("button", { name: /^attachment$|attach/i })
-        .first()
-        .click(),
+      page.getByRole("button", { name: /upload files/i }).first().click(),
     ]);
     await fileChooser.setFiles(filePaths);
-    await page.waitForTimeout(2000);
+
+    // Let the upload begin, then confirm with "Attach" if the modal awaits it.
+    await page.waitForTimeout(1500);
+    const confirm = page.getByRole("button", { name: "Attach", exact: true }).first();
+    if (await confirm.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      // Wait until the confirm button is enabled (upload finished).
+      await page
+        .waitForFunction(
+          (btn) => btn instanceof HTMLButtonElement && !btn.disabled,
+          await confirm.elementHandle(),
+          { timeout: 180_000 }
+        )
+        .catch(() => {});
+      await confirm.click().catch(() => {});
+    }
+
+    // Wait for the upload modal to close.
     await page
-      .getByText(/uploading/i)
+      .getByRole("button", { name: /upload files/i })
+      .first()
       .waitFor({ state: "hidden", timeout: 180_000 })
       .catch(() => {});
   }
@@ -78,6 +101,18 @@ export class ZohoProvider extends BaseProvider {
     await sendBtn.waitFor({ timeout: 20_000 });
     if (await sendBtn.isDisabled()) throw new Error("Send button is disabled");
     await sendBtn.click();
+
+    // If the compose surface is still open shortly after (e.g. the click landed
+    // mid-render after the attachment modal closed), retry via Zoho's keyboard
+    // shortcut (Ctrl/Cmd+Enter).
+    await page.waitForTimeout(2500);
+    if (await sendBtn.isVisible().catch(() => false)) {
+      await page.keyboard.press("ControlOrMeta+Enter");
+      await page.waitForTimeout(1500);
+      if (await sendBtn.isVisible().catch(() => false)) {
+        await sendBtn.click().catch(() => {});
+      }
+    }
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {

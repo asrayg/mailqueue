@@ -28,6 +28,10 @@ async function main() {
     process.exit(1);
   }
 
+  // Any extra args after the provider are treated as attachment file paths.
+  const attachments = process.argv.slice(3);
+  if (attachments.length) console.log(`[${arg}] Attachments: ${attachments.join(", ")}`);
+
   const provider = createProvider(arg);
   console.log(`[${arg}] Launching browser. Log in if prompted...`);
   await provider.login();
@@ -72,7 +76,7 @@ async function main() {
       subject: `MailQueue test ${new Date().toISOString()} (${arg})`,
       body: "This is a MailQueue provider smoke test. If you received this, the automation works.",
     },
-    []
+    attachments
   );
 
   // Capture a screenshot of the final state for inspection.
