@@ -71,11 +71,22 @@ export class GmailProvider extends BaseProvider {
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {
-    // Gmail shows a "Message sent" toast with an Undo link.
-    const toast = page.getByText(/message sent|sending\.\.\./i).first();
-    return toast
-      .waitFor({ timeout: 20_000 })
+    // Gmail confirms a real send with a snackbar reading "Message sent" that
+    // contains an "Undo" / "View message" link. We deliberately do NOT accept
+    // the transient "Sending..." toast, which appears before delivery and can
+    // produce false positives. The snackbar lives in an aria-live region.
+    const confirmed = page
+      .getByRole("link", { name: /^undo$/i })
+      .or(page.getByText(/^Message sent\b/i))
+      .first();
+    const ok = await confirmed
+      .waitFor({ timeout: 30_000 })
       .then(() => true)
       .catch(() => false);
+    if (ok) return true;
+
+    // If a recipient/validation problem occurred, Gmail surfaces an error
+    // dialog (e.g. "Please specify at least one recipient."). Treat as failure.
+    return false;
   }
 }

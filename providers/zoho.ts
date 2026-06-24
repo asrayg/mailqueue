@@ -9,6 +9,10 @@ import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
 export class ZohoProvider extends BaseProvider {
   readonly provider: Provider = "zoho";
   protected readonly mailboxUrl = "https://mail.zoho.com/zm/";
+  // Zoho mailboxes span zoho.com / zoho.eu / zoho.in regional hosts.
+  protected get expectedHostIncludes(): string {
+    return "mail.zoho.";
+  }
 
   protected async openMailbox(page: Page): Promise<void> {
     await page.goto(this.mailboxUrl, { waitUntil: "domcontentloaded" });

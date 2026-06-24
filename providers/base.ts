@@ -22,6 +22,20 @@ export abstract class BaseProvider implements MailProviderAdapter {
   /** URL the mailbox lives at, used to detect "are we still logged in". */
   protected abstract readonly mailboxUrl: string;
 
+  /**
+   * Host substring the mailbox is expected to stay on. If the page navigates
+   * away to a sign-in/challenge host, the safety detector pauses the campaign.
+   * Defaults to the mailboxUrl's hostname; providers may override (e.g. Outlook
+   * spans outlook.live.com and outlook.office.com).
+   */
+  protected get expectedHostIncludes(): string {
+    try {
+      return new URL(this.mailboxUrl).hostname;
+    } catch {
+      return this.mailboxUrl;
+    }
+  }
+
   // --- Subclass UI steps -------------------------------------------------
   protected abstract openMailbox(page: Page): Promise<void>;
   protected abstract uiComposeEmail(page: Page, input: ComposeEmailInput): Promise<void>;
@@ -43,7 +57,9 @@ export abstract class BaseProvider implements MailProviderAdapter {
   }
 
   async checkSafety(): Promise<SafetySignal | null> {
-    return detectSafetySignals(this.ensurePage());
+    return detectSafetySignals(this.ensurePage(), {
+      expectedHostIncludes: this.expectedHostIncludes,
+    });
   }
 
   async composeEmail(input: ComposeEmailInput): Promise<void> {

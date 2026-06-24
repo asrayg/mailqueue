@@ -32,15 +32,59 @@ async function main() {
   console.log(`[${arg}] Launching browser. Log in if prompted...`);
   await provider.login();
 
+  // First-time login can take a while (password + 2FA). Poll until the mailbox
+  // is ready (no logged-out / sign-in signal) before attempting to send.
+  const LOGIN_TIMEOUT_MS = 5 * 60_000;
+  const startedAt = Date.now();
+  let announced = false;
+  while (Date.now() - startedAt < LOGIN_TIMEOUT_MS) {
+    const signal = await provider.checkSafety();
+    if (!signal || (signal.kind !== "logged_out" && signal.kind !== "captcha")) break;
+    if (!announced) {
+      console.log(
+        `[${arg}] Waiting for you to finish logging in (up to 5 min). ` +
+          `Reason: ${signal.kind} — ${signal.detail}`
+      );
+      announced = true;
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+
+  // Diagnostics: which account are we actually signed into?
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = (provider as any).page;
+  if (page) {
+    try {
+      const acct = await page
+        .locator('a[aria-label*="@"], [aria-label*="Google Account"]')
+        .first()
+        .getAttribute("aria-label", { timeout: 3000 });
+      console.log(`[${arg}] Signed-in account hint: ${acct ?? "unknown"}`);
+    } catch {
+      console.log(`[${arg}] Could not read signed-in account.`);
+    }
+  }
+
   console.log(`[${arg}] Sending a test email to ${to}...`);
   const result = await provider.send(
     {
       to,
-      subject: `MailQueue test (${arg})`,
+      subject: `MailQueue test ${new Date().toISOString()} (${arg})`,
       body: "This is a MailQueue provider smoke test. If you received this, the automation works.",
     },
     []
   );
+
+  // Capture a screenshot of the final state for inspection.
+  if (page) {
+    try {
+      const shot = `/tmp/mailqueue-${arg}-result.png`;
+      await page.screenshot({ path: shot, fullPage: false });
+      console.log(`[${arg}] Screenshot saved: ${shot}`);
+    } catch {
+      /* ignore */
+    }
+  }
 
   console.log(`[${arg}] Result:`, result);
   await provider.close();

@@ -9,6 +9,10 @@ import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
 export class OutlookProvider extends BaseProvider {
   readonly provider: Provider = "outlook";
   protected readonly mailboxUrl = "https://outlook.live.com/mail/0/";
+  // Outlook mailboxes span outlook.live.com, outlook.office.com, office365.com.
+  protected get expectedHostIncludes(): string {
+    return "outlook.";
+  }
 
   protected async openMailbox(page: Page): Promise<void> {
     await page.goto(this.mailboxUrl, { waitUntil: "domcontentloaded" });

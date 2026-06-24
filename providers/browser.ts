@@ -35,59 +35,70 @@ export async function launchProviderContext(
  * Scan a page's visible text for unsafe conditions. We DO NOT attempt to solve
  * or bypass any of these — detection exists purely to pause the campaign.
  */
+export interface SafetyDetectOptions {
+  /**
+   * Substring of the host the mailbox is expected to live on (e.g.
+   * "mail.google.com"). If the page has navigated to a known auth/challenge
+   * host instead, we treat that as logged-out / a security wall.
+   */
+  expectedHostIncludes: string;
+}
+
+// Genuine login / security-challenge hosts the providers redirect to. These are
+// full-page takeovers — unlike inbox email content, they are reliable signals.
+const AUTH_HOSTS = [
+  "accounts.google.com",
+  "signin",
+  "challenge",
+  "login.live.com",
+  "login.microsoftonline.com",
+  "account.live.com",
+  "accounts.zoho.com",
+  "accounts.zoho.eu",
+];
+
+const CHALLENGE_MARKERS = ["challenge", "/signin/v2", "recaptcha", "deniedsigninrejected"];
+
+/**
+ * Detect unsafe conditions WITHOUT keyword-scanning the inbox (email subjects
+ * like "Security alert" would otherwise cause false positives). We rely on:
+ *   1. the page URL having left the mailbox for an auth/challenge host, and
+ *   2. the presence of a real CAPTCHA iframe.
+ * We never attempt to solve or bypass any of these.
+ */
 export async function detectSafetySignals(
-  page: Page
+  page: Page,
+  opts: SafetyDetectOptions
 ): Promise<SafetySignal | null> {
-  let text = "";
-  try {
-    text = (await page.locator("body").innerText({ timeout: 3000 })).toLowerCase();
-  } catch {
-    // If we can't even read the body, treat as a logout/navigation issue.
-    return { kind: "logged_out", detail: "Could not read page content" };
+  const url = page.url().toLowerCase();
+
+  // 1. Real CAPTCHA widgets are iframes from recaptcha/hcaptcha.
+  const captchaCount = await page
+    .locator(
+      'iframe[src*="recaptcha"], iframe[title*="recaptcha" i], iframe[src*="hcaptcha"], iframe[title*="captcha" i]'
+    )
+    .count()
+    .catch(() => 0);
+  if (captchaCount > 0) {
+    return { kind: "captcha", detail: "CAPTCHA / human-verification widget detected" };
   }
 
-  // CAPTCHA — never solved, only detected.
-  if (
-    text.includes("captcha") ||
-    text.includes("i'm not a robot") ||
-    text.includes("verify you are human") ||
-    text.includes("unusual traffic")
-  ) {
-    return { kind: "captcha", detail: "CAPTCHA / human-verification prompt detected" };
-  }
-
-  if (
-    text.includes("suspicious activity") ||
-    text.includes("unusual sign-in") ||
-    text.includes("unusual activity") ||
-    text.includes("verify it's you") ||
-    text.includes("security alert") ||
-    text.includes("your account has been")
-  ) {
-    return {
-      kind: "security_warning",
-      detail: "Account security warning detected",
-    };
-  }
-
-  if (text.includes("account has been locked") || text.includes("account disabled")) {
-    return { kind: "account_locked", detail: "Account locked/disabled" };
-  }
-
-  if (
-    text.includes("sign in") &&
-    (text.includes("enter your password") || text.includes("choose an account"))
-  ) {
-    return { kind: "logged_out", detail: "Appears logged out — sign-in page shown" };
-  }
-
-  if (
-    text.includes("sending limit") ||
-    text.includes("you have reached a limit") ||
-    text.includes("messages per day") ||
-    text.includes("rate limit")
-  ) {
-    return { kind: "rate_warning", detail: "Provider rate/sending-limit warning" };
+  // 2. Did we get bounced off the mailbox to an auth/challenge host?
+  const onMailbox = url.includes(opts.expectedHostIncludes);
+  if (!onMailbox) {
+    const onAuthHost = AUTH_HOSTS.some((h) => url.includes(h));
+    if (onAuthHost) {
+      const isChallenge = CHALLENGE_MARKERS.some((m) => url.includes(m));
+      if (isChallenge) {
+        return {
+          kind: "security_warning",
+          detail: `Security challenge page: ${url}`,
+        };
+      }
+      return { kind: "logged_out", detail: `Redirected to sign-in: ${url}` };
+    }
+    // Navigated somewhere unexpected entirely — be conservative and pause.
+    return { kind: "logged_out", detail: `Unexpected location: ${url}` };
   }
 
   return null;
