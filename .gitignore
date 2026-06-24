@@ -21,10 +21,11 @@ npm-debug.log*
 .env
 .env*.local
 
-# database
+# database (SQLite lives in prisma/)
 /prisma/*.db
 /prisma/*.db-journal
 /prisma/dev.db*
+/prisma/prisma/
 
 # playwright browser sessions (contain logged-in cookies — never commit)
 /browser-profiles/
