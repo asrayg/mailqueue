@@ -83,6 +83,17 @@ export async function detectSafetySignals(
     return { kind: "captcha", detail: "CAPTCHA / human-verification widget detected" };
   }
 
+  // Account-picker / explicit sign-in routes can keep the mailbox host (e.g.
+  // outlook.live.com/mail/?prompt=select_account), so flag them directly.
+  if (
+    url.includes("select_account") ||
+    url.includes("prompt=select") ||
+    url.includes("/login") ||
+    url.includes("/logout")
+  ) {
+    return { kind: "logged_out", detail: `Sign-in/account-picker page: ${url}` };
+  }
+
   // 2. Did we get bounced off the mailbox to an auth/challenge host?
   const onMailbox = url.includes(opts.expectedHostIncludes);
   if (!onMailbox) {
