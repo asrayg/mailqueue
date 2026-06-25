@@ -1,14 +1,45 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { readFileSync, existsSync } from "node:fs";
 import { PROVIDERS, type Provider } from "../lib/validation";
 
-/** Load .env (DATABASE_URL etc.) without a dependency. Call once at startup. */
+/** The MailQueue project root (this file lives at <root>/cli/util.ts). */
+export const PROJECT_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
+
+/**
+ * Load env + resolve all paths against the project root so the CLI works from
+ * ANY working directory (e.g. when installed globally via `npm link`). SQLite,
+ * browser profiles, and uploads all live inside the project regardless of CWD.
+ * Call once at startup, before any DB query.
+ */
 export function loadEnv(): void {
-  try {
-    process.loadEnvFile();
-  } catch {
-    /* rely on the real environment */
+  // Prefer the project's .env; also try CWD .env as a fallback.
+  for (const p of [path.join(PROJECT_ROOT, ".env"), undefined] as const) {
+    try {
+      p ? process.loadEnvFile(p) : process.loadEnvFile();
+    } catch {
+      /* file may not exist — rely on the real environment */
+    }
   }
+
+  // DATABASE_URL: resolve a relative sqlite path against <root>/prisma (Prisma
+  // resolves "file:./dev.db" relative to the schema dir).
+  const url = process.env.DATABASE_URL;
+  if (url && url.startsWith("file:") && !url.startsWith("file:/")) {
+    process.env.DATABASE_URL = "file:" + path.resolve(PROJECT_ROOT, "prisma", url.slice(5));
+  } else if (!url) {
+    process.env.DATABASE_URL = "file:" + path.resolve(PROJECT_ROOT, "prisma", "dev.db");
+  }
+
+  // Browser profiles + uploads live in the project, not the CWD.
+  process.env.BROWSER_PROFILES_DIR = path.resolve(
+    PROJECT_ROOT,
+    process.env.BROWSER_PROFILES_DIR || "browser-profiles"
+  );
+  process.env.UPLOADS_DIR = path.resolve(PROJECT_ROOT, process.env.UPLOADS_DIR || "uploads");
 }
 
 let jsonMode = false;

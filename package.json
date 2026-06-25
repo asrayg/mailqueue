@@ -12,6 +12,8 @@
     "start": "next start",
     "lint": "next lint",
     "mq": "tsx cli/index.ts",
+    "link": "npm link",
+    "postinstall": "node scripts/postinstall.cjs",
     "worker": "tsx worker/sendWorker.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

@@ -74,9 +74,13 @@ npx tsx scripts/testProvider.ts gmail --in=10       # schedule-send 10 min out (
 
 ## CLI
 
-Everything the dashboard does is available from the terminal via `mailqueue`
-(run as `npm run mq -- <args>`, or `mailqueue <args>` if globally linked). Every
-command accepts `--json` for machine-readable output.
+Everything the dashboard does is available from the terminal via `mailqueue`.
+`npm install` runs a `postinstall` that best-effort `npm link`s the CLI so
+`mailqueue <args>` works from any directory (set `MQ_NO_LINK=1` to skip, or run
+`npm link` yourself; `npm run mq -- <args>` always works without linking). The
+global command resolves the project's DB, sessions, and uploads by absolute path,
+so it works from anywhere. Every command accepts `--json` for machine-readable
+output.
 
 ```bash
 # log in once per provider (opens a browser; session is saved)
