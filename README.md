@@ -186,3 +186,20 @@ scripts/             provider smoke tests + inspect*.ts DOM-introspection dev ai
 - Wire Mode 2 (provider-native schedule-send, already implemented + validated at
   the provider layer) into per-recipient campaign scheduling from the dashboard
 - v2 follow-ups (skip on reply / not-interested, max one by default)
+
+## Contributing
+
+Issues and PRs welcome. If a provider's web UI changes and breaks the
+automation, the fix is usually a selector update in `providers/<provider>.ts` —
+use the `scripts/inspect*.ts` DOM-introspection aids to find the new selectors,
+verify with `npm run mq -- provider test <provider>`, and open a PR.
+
+## License
+
+[MIT](LICENSE) © Asray Gopa.
+
+> Use responsibly. MailQueue is for consensual, legitimate outreach and
+> follow-ups. Do not use it to send spam, and do not modify it to bypass email
+> providers' anti-abuse systems (CAPTCHA, 2FA, rate limits). You are responsible
+> for complying with anti-spam laws (e.g. CAN-SPAM, GDPR) and each provider's
+> Terms of Service.

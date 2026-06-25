@@ -3,6 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "description": "Controlled, scheduled, multi-provider email outreach via browser automation.",
+  "license": "MIT",
+  "author": "Asray Gopa",
+  "homepage": "https://github.com/asrayg/mailqueue#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asrayg/mailqueue.git"
+  },
+  "bugs": {
+    "url": "https://github.com/asrayg/mailqueue/issues"
+  },
+  "keywords": [
+    "email",
+    "outreach",
+    "cold-email",
+    "playwright",
+    "automation",
+    "gmail",
+    "outlook",
+    "zoho",
+    "scheduler",
+    "cli"
+  ],
   "bin": {
     "mailqueue": "./bin/mailqueue.js"
   },
