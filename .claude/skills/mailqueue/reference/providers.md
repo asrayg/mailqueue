@@ -37,6 +37,7 @@ Gmail `mail.google.com`, Outlook `outlook.` (covers office.com/live.com/cloud.mi
 | Compose | `getByRole('button', { name: /compose/i })` |
 | Dialog | `getByRole('dialog')` |
 | To | `dialog.getByRole('combobox', { name: /to recipients\|to/i })` → fill → `Tab` |
+| CC | reveal first: `dialog.getByRole('link', { name: /add cc recipients/i })` (it's a **link**, not a button), then `dialog.getByRole('combobox', { name: /cc recipients/i })` → fill each + `Enter` |
 | Subject | `dialog.getByRole('textbox', { name: /subject/i })` |
 | Body | `dialog.getByRole('textbox', { name: /message body/i })` |
 | Attach | "Attach files" button triggers a `filechooser`; wait for `/uploading/i` to go hidden |
@@ -59,7 +60,8 @@ on an account picker (`?prompt=select_account`).
 | Step | Selector |
 | --- | --- |
 | Compose | New-Outlook ribbon button is just **"New"** (not "New mail"): try `/new mail/i`, `/new message/i`, then `/^new$/i`; handle an optional dropdown menuitem `/mail\|email/i` |
-| To | `getByLabel('To', { exact: true })` — a contenteditable `div`, exact label avoids "To Do" |
+| To | `getByLabel('To', { exact: true })` — a contenteditable `div`, exact label avoids "To Do". After fill+Enter, press **`Escape`** to close the people-picker popup so it can't overlay Cc/Subject |
+| CC | `getByLabel('Cc', { exact: true })` (inline contenteditable div) → fill each + `Enter`, then `Escape` |
 | Subject | `getByRole('textbox', { name: 'Subject', exact: true })` (an `<input>`) |
 | Body | `getByRole('textbox', { name: 'Message body' })` |
 | Attach | button `/attach file/i` → menu `/browse this computer\|this computer\|upload from/i` triggers the `filechooser` |
@@ -77,18 +79,23 @@ send too early.
 | Step | Selector |
 | --- | --- |
 | Compose | `getByRole('button', { name: /new mail\|compose/i })` |
-| To | `getByRole('combobox', { name: /to recipients/i })` → fill → `Enter` → `Escape` (dismiss autocomplete overlay) |
-| Subject | `getByPlaceholder('Subject', { exact: true })` (dynamic id, no aria-label) |
-| Body | **inside an iframe**: `frameLocator('iframe[title="Text editor area"], iframe.ze_area').locator('body')` → click → `ControlOrMeta+a` → type. (`#wms-pasteCapture` is a 0×0 decoy — do not target it.) |
+| To | `getByRole('combobox', { name: /to recipients/i })` → fill → `Enter`. **Do NOT press `Escape`** (see below) |
+| CC | `getByRole('combobox', { name: /cc recipients/i })` → fill each + `Enter`. No Escape |
+| Subject | `getByPlaceholder('Subject', { exact: true })` — use **`fill()` without a preceding `click()`** (a recipient popup can overlay it) |
+| Body | **inside an iframe**: `frameLocator('iframe[title="Text editor area"], iframe.ze_area').locator('body')` → **`focus()`** (not click) → `ControlOrMeta+a` → type. (`#wms-pasteCapture` is a 0×0 decoy — do not target it.) |
 | Attach | button `"Attachment"` (exact) opens a **modal** → button `/upload files/i` triggers `filechooser` → button `"Attach"` (exact) confirms; wait for the modal to close |
 | Send | `getByRole('button', { name: 'Send', exact: true })`; if compose stays open after a modal interaction, retry with `ControlOrMeta+Enter`, then re-click |
 | Verify sent | Send button hidden OR a `/message has been sent\|mail sent\|sent successfully/i` toast |
 | Schedule | button `[data-testid="com_send_later"]` → "Schedule" tab → text "Custom Date and Time" → date dropdown (`MM/DD/YYYY`, defaults to today) + **24h** spinbuttons `getByRole('spinbutton', { name: 'Hour'\|'Minute' })` → button `/schedule and send/i` |
 
-Notes: Zoho layout varies by theme/account, so keep fallbacks. Two real bugs already fixed here: the
-body editor is in the `ze_area` iframe (not the `wms-pasteCapture` div), and the post-attachment Send
-could silently no-op (fixed with the Cmd/Ctrl+Enter retry). Zoho's soonest schedule preset is 10
-minutes; the custom picker accepted a few minutes. 24-hour Hour/Minute, account-local timezone.
+Notes: Zoho layout varies by theme/account, so keep fallbacks. Real bugs already fixed here: the body
+editor is in the `ze_area` iframe (not the `wms-pasteCapture` div); the post-attachment Send could
+silently no-op (fixed with the Cmd/Ctrl+Enter retry in `uiSend`); and — **critical** — pressing
+`Escape` anywhere in Zoho compose pops a modal (`zmCompPortalWrapper`) that overlays the entire form
+(including Send) and blocks everything. So Zoho compose must NEVER press `Escape`; instead reach
+Subject via `fill()` and the body via `focus()` (no pointer clicks the recipient popup could
+intercept), which keeps it working even with CC's suggestion popup open. Zoho's soonest schedule
+preset is 10 minutes; the custom picker accepted a few minutes. 24-hour Hour/Minute, account-local tz.
 
 ---
 

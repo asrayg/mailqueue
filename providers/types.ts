@@ -4,8 +4,19 @@ export type Provider = "gmail" | "outlook" | "zoho";
 
 export interface ComposeEmailInput {
   to: string;
+  /** Optional CC recipients — comma/semicolon-separated. */
+  cc?: string;
   subject: string;
   body: string;
+}
+
+/** Split a comma/semicolon-separated recipient string into trimmed addresses. */
+export function splitRecipients(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export interface SendTimingInput {

@@ -92,7 +92,8 @@ npm run mq -- provider login gmail
 # create → preview → test → start
 npm run mq -- --json campaign create --name "Q3 shops" --provider gmail \
   --subject "Quick question about {{company}}" --body-file body.txt \
-  --csv contacts.csv --attach deck.pdf --max-per-day 25 --delay 300-900
+  --csv contacts.csv --attach deck.pdf --cc colleague@yourco.com \
+  --max-per-day 25 --delay 300-900
 npm run mq -- --json campaign preview <id>      # rendered emails + blockers
 npm run mq -- campaign test <id> --to me@x.com  # one test email
 npm run mq -- --json campaign start <id>

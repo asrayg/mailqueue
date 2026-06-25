@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { BaseProvider } from "./base";
 import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
+import { splitRecipients } from "./types";
 
 /**
  * Zoho Mail automation. Zoho's layout varies by account/theme, so each step
@@ -40,23 +41,40 @@ export class ZohoProvider extends BaseProvider {
     await to.fill(input.to);
     await page.waitForTimeout(400);
     await page.keyboard.press("Enter");
-    // Dismiss any lingering autocomplete dropdown so it can't overlay the
-    // compose toolbar / intercept the Send click.
-    await page.keyboard.press("Escape");
+    // NOTE: deliberately NO Escape here. Pressing Escape in Zoho compose pops a
+    // modal (zmCompPortalWrapper) that overlays the whole form and blocks Send.
+    // Subject uses fill() and the body uses focus(), so no pointer click below
+    // the recipient fields is needed.
 
-    // Subject is an input identified only by its placeholder.
+    // CC — a combobox labeled "CC Recipients" (shown inline in compose).
+    const ccList = splitRecipients(input.cc);
+    if (ccList.length) {
+      const cc = page.getByRole("combobox", { name: /cc recipients/i }).first();
+      await cc.click();
+      for (const addr of ccList) {
+        await cc.fill(addr);
+        await page.keyboard.press("Enter");
+      }
+      // NOTE: do not press Escape here — in Zoho compose that pops a modal that
+      // overlays the whole form (incl. Send). Subject uses fill() and the body
+      // uses focus(), so neither needs a pointer click the CC popup could block.
+    }
+
+    // Subject is an input identified only by its placeholder. Use fill() without
+    // a preceding click so a lingering CC suggestion popup can't intercept it.
     const subject = page.getByPlaceholder("Subject", { exact: true }).first();
-    await subject.click();
     await subject.fill(input.subject);
 
     // The body editor lives inside an iframe ("Text editor area", class ze_area);
     // its document body is contenteditable and pre-filled with the signature.
-    // Click in, select all, and type to replace with our content.
+    // Focus (not click) so a lingering recipient-suggestion / scroll overlay
+    // can't intercept the pointer; then select all + type to replace.
     const editorFrame = page.frameLocator(
       'iframe[title="Text editor area"], iframe.ze_area'
     );
     const body = editorFrame.locator("body").first();
-    await body.click({ timeout: 30_000 });
+    await body.waitFor({ timeout: 30_000 });
+    await body.focus();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.type(input.body);
   }

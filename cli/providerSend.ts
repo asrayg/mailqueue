@@ -1,4 +1,9 @@
-import { createProvider, type Provider, type SendResult } from "../providers";
+import {
+  createProvider,
+  type ComposeEmailInput,
+  type Provider,
+  type SendResult,
+} from "../providers";
 
 /**
  * Open a provider, wait for the mailbox to be ready (so first-time manual login
@@ -7,7 +12,7 @@ import { createProvider, type Provider, type SendResult } from "../providers";
  */
 export async function sendOneOff(
   provider: Provider,
-  input: { to: string; subject: string; body: string },
+  input: ComposeEmailInput,
   attachments: string[],
   scheduleAt: Date | undefined,
   opts: { loginTimeoutMs?: number; onStatus?: (msg: string) => void } = {}

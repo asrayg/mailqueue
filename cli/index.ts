@@ -64,6 +64,7 @@ campaign
   .option("--subject <subject>")
   .option("--body <text>")
   .option("--body-file <file>")
+  .option("--cc <emails>", "fixed CC recipient(s), comma-separated, applied to every send")
   .option("--csv <file>", "recipients CSV (needs an `email` column)")
   .option("--attach <file...>", "attachment file path(s)")
   .option("--window <HH:MM-HH:MM>", "sending window (local to --tz)")
@@ -86,6 +87,7 @@ campaign
       provider,
       subjectTemplate: opts.subject ?? cfg.subject,
       bodyTemplate: opts.body || opts.bodyFile ? readBody(opts) : cfg.body,
+      cc: opts.cc ?? cfg.cc,
       attachmentPaths,
       sendingWindowStart: window.start,
       sendingWindowEnd: window.end,
@@ -106,6 +108,7 @@ campaign
         provider: values.provider,
         subjectTemplate: values.subjectTemplate,
         bodyTemplate: values.bodyTemplate,
+        cc: values.cc ?? null,
         attachmentPaths: JSON.stringify(attachmentPaths),
         sendingWindowStart: values.sendingWindowStart,
         sendingWindowEnd: values.sendingWindowEnd,
@@ -213,6 +216,7 @@ campaign
         provider: c.provider,
         status: c.status,
         subject: c.subjectTemplate,
+        cc: c.cc,
         window: `${c.sendingWindowStart}-${c.sendingWindowEnd} ${c.timezone}`,
         sendDays: parseSendDays(c.sendDaysJson),
         caps: { maxPerHour: c.maxPerHour, maxPerDay: c.maxPerDay },
@@ -468,6 +472,7 @@ provider
   .command("test <provider>")
   .description("Send a smoke-test email to verify a provider end to end")
   .option("--to <email>", "recipient (default TEST_RECIPIENT_EMAIL)")
+  .option("--cc <emails>", "CC recipient(s), comma-separated")
   .option("--attach <file...>", "attachment file path(s)")
   .option("--in <spec>", "schedule N minutes out (Mode 2), e.g. --in 10")
   .action(async (p, opts) => {
@@ -480,6 +485,7 @@ provider
       prov,
       {
         to,
+        cc: opts.cc,
         subject: `MailQueue test ${new Date().toISOString()} (${prov})`,
         body: "MailQueue provider smoke test.",
       },
@@ -501,6 +507,7 @@ program
   .description("Send a single email immediately or scheduled (no campaign, no logging)")
   .requiredOption("--provider <provider>", "gmail | outlook | zoho")
   .requiredOption("--to <email>")
+  .option("--cc <emails>", "CC recipient(s), comma-separated")
   .requiredOption("--subject <subject>")
   .option("--body <text>")
   .option("--body-file <file>")
@@ -514,7 +521,7 @@ program
     const scheduleAt = parseScheduleAt(opts.in ?? opts.at);
     const result = await sendOneOff(
       prov,
-      { to: opts.to, subject: opts.subject, body },
+      { to: opts.to, cc: opts.cc, subject: opts.subject, body },
       attachments,
       scheduleAt,
       { onStatus: (m) => !isJson() && console.error(m) }

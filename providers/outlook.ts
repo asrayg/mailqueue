@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { BaseProvider } from "./base";
 import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
+import { splitRecipients } from "./types";
 import { format12hTime } from "../lib/time";
 
 /**
@@ -71,6 +72,20 @@ export class OutlookProvider extends BaseProvider {
     await to.click();
     await to.fill(input.to);
     await page.keyboard.press("Enter");
+    // Close the people-picker suggestion popup so it can't overlay the Cc field.
+    await page.keyboard.press("Escape");
+
+    // CC — an inline contenteditable div labeled "Cc".
+    const ccList = splitRecipients(input.cc);
+    if (ccList.length) {
+      const cc = page.getByLabel("Cc", { exact: true }).first();
+      await cc.click();
+      for (const addr of ccList) {
+        await cc.fill(addr);
+        await page.keyboard.press("Enter");
+      }
+      await page.keyboard.press("Escape");
+    }
 
     const subject = page
       .getByRole("textbox", { name: "Subject", exact: true })

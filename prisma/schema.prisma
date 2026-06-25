@@ -15,6 +15,9 @@ model Campaign {
   subjectTemplate String
   bodyTemplate    String
 
+  // Optional fixed CC recipients (comma-separated), applied to every send.
+  cc String?
+
   // JSON-encoded string[] of absolute attachment paths.
   attachmentPaths String @default("[]")
 

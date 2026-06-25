@@ -99,6 +99,9 @@ Add `--json` right after `mailqueue`/`mq --`, e.g. `npm run mq -- --json campaig
   Missing vars render blank and are surfaced by `campaign preview` (`missingVars`).
 - **CSV**: must have an `email` column; optional `first_name`, `last_name`, `company`, and any
   extra columns. Emails are trimmed, lowercased, de-duplicated; invalid rows dropped.
+- **CC**: supported on all three providers. A campaign-level fixed CC (`campaign create --cc`, stored
+  on the campaign) is added to every send; one-off `send`/`provider test` take `--cc` too. Comma-
+  separated for multiple. (BCC is not implemented yet.)
 - **Data model** (SQLite via Prisma): `Campaign`, `Recipient`, `SendLog`, `GlobalContactHistory`
   (cross-campaign de-dup). `GlobalContactHistory` is written on real sends (not test sends), so a
   recipient contacted within `recontactAfterDays` is auto-skipped in future campaigns.
@@ -150,8 +153,8 @@ To advance sends deterministically in a test (one pass, ignores randomized delay
 ## Workflow: one-off / scheduled send (no campaign)
 
 ```bash
-# immediate
-npm run mq -- send --provider gmail --to a@b.com --subject "Hi" --body "..."
+# immediate (optionally CC someone)
+npm run mq -- send --provider gmail --to a@b.com --cc boss@co.com --subject "Hi" --body "..."
 # schedule 30 min out (Mode 2 — fires with the app closed)
 npm run mq -- send --provider gmail --to a@b.com --subject "Hi" --body "..." --in 30
 # schedule at an absolute time

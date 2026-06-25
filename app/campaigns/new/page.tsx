@@ -58,6 +58,22 @@ export default function NewCampaignPage() {
           </div>
 
           <div>
+            <label className="label" htmlFor="cc">
+              CC <span className="text-slate-500">(optional)</span>
+            </label>
+            <input
+              id="cc"
+              name="cc"
+              className="input"
+              placeholder="colleague@yourco.com, manager@yourco.com"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Fixed CC recipient(s), comma-separated — added to every email in the
+              campaign.
+            </p>
+          </div>
+
+          <div>
             <label className="label" htmlFor="bodyTemplate">
               Email body
             </label>

@@ -140,7 +140,10 @@ export async function sendOneEmail(
   let result;
   try {
     await provider.login();
-    result = await provider.send({ to, subject, body }, attachmentPaths);
+    result = await provider.send(
+      { to, cc: campaign.cc ?? undefined, subject, body },
+      attachmentPaths
+    );
   } catch (err) {
     result = {
       success: false,

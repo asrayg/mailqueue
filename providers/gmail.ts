@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { BaseProvider } from "./base";
 import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
+import { splitRecipients } from "./types";
 import { dayMonthCell, format12hTime } from "../lib/time";
 
 /**
@@ -32,6 +33,18 @@ export class GmailProvider extends BaseProvider {
     await to.click();
     await to.fill(input.to);
     await page.keyboard.press("Tab");
+
+    // CC (Gmail hides the field until the "Cc" button is clicked).
+    const ccList = splitRecipients(input.cc);
+    if (ccList.length) {
+      await dialog.getByRole("link", { name: /add cc recipients/i }).first().click();
+      const cc = dialog.getByRole("combobox", { name: /cc recipients/i }).first();
+      await cc.click();
+      for (const addr of ccList) {
+        await cc.fill(addr);
+        await page.keyboard.press("Enter");
+      }
+    }
 
     // Subject
     const subject = dialog.getByRole("textbox", { name: /subject/i });
