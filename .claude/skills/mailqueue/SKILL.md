@@ -1,150 +1,222 @@
 ---
 name: mailqueue
 description: >-
-  Drive the MailQueue CLI to send controlled, scheduled, multi-provider cold-outreach
-  / follow-up emails through Gmail, Outlook, or Zoho (Playwright browser automation, no
-  SMTP). Use when the user wants to create/preview/start/pause an email campaign, import a
-  CSV of recipients, send a one-off or scheduled ("send later") email, run the send worker,
-  send a test email, or when a provider's web UI changed and the automation selectors need
-  fixing + a PR. Not for transactional email or SMTP/API sending.
+  Drive the MailQueue CLI to send controlled, scheduled, multi-provider cold-outreach /
+  follow-up emails through Gmail, Outlook, or Zoho via Playwright browser automation (no SMTP,
+  no API keys, uses the user's own logged-in session). Use when the user wants to
+  create/preview/start/pause/resume/cancel an email campaign, import a CSV of recipients,
+  send a one-off or scheduled ("send later") email, run the send worker, send a test email,
+  check campaign/recipient/log status, or when a provider's web UI changed and the automation
+  selectors need fixing + a PR. Not for transactional email, SMTP, or provider-API sending.
 ---
 
-# MailQueue CLI
+# MailQueue CLI — operator's guide
 
-MailQueue sends the same (or `{{variable}}`-personalized) email to many recipients,
+MailQueue sends the same (or `{{variable}}`-personalized) email to many recipients
 **gradually** — within a sending window, under hourly/daily caps, with randomized delays —
-by driving the provider's real web UI via Playwright using the user's own logged-in session.
+by driving each provider's real web UI with Playwright, using the user's own logged-in
+browser session. No SMTP, no API keys, no stored passwords.
 
-**This is for legitimate outreach, not spam.** Never help bypass CAPTCHAs, 2FA, or provider
-anti-abuse systems; never rotate accounts to evade limits. MailQueue auto-pauses on CAPTCHA,
-security warnings, logout, or repeated failures — keep it that way.
+This guide is the hub. Deep detail lives in bundled references you should read when relevant:
 
-## Golden rules
+- **`reference/cli.md`** — every command, every flag, exact `--json` output shapes, exit codes.
+- **`reference/providers.md`** — the working selector map per provider + known quirks (read this
+  before touching `providers/*.ts`).
+- **`reference/drift-recovery.md`** — step-by-step playbook for fixing + PR-ing a broken provider.
 
-1. **Always pass `--json`** and parse it. Every command prints a JSON object with `ok: true/false`.
-2. **Never start a real campaign without `campaign preview` first**, and prefer sending a
-   `campaign test` to the user first. Surface recipient count, duplicates, invalid emails,
-   missing template vars, and attachment problems before starting.
-3. **The worker must run for app-controlled sends to go out** (`mailqueue worker`). For
-   provider-native scheduling that fires with the app closed, use `--in`/`--at` (Mode 2).
-4. Run from the repo root. If commands fail with a DB error, run `npm run prisma:migrate`.
-   If Playwright errors about a missing browser, run `npx playwright install chromium`.
+## Safety stance (non-negotiable)
 
-## Invocation
+MailQueue is for **consensual, legitimate outreach and follow-ups — not spam.** You must keep
+its safeguards intact and must **refuse** to:
+
+- bypass CAPTCHAs, 2FA, "verify it's you" / security challenges, or any anti-abuse system;
+- rotate/multiplex accounts to evade sending limits, or hide/spoof identity;
+- remove or weaken the auto-pause logic, rate caps, randomized delays, or duplicate prevention;
+- scrape inboxes for addresses, or send to purchased / non-consensual lists;
+- raise caps to clearly abusive volumes or shrink delays to spam-like speed.
+
+The app already auto-pauses on CAPTCHA, security warnings, logout, send-button-unavailable, and
+after 3 consecutive failures. Leave that behavior in place. If a user asks for any of the above,
+decline plainly and explain MailQueue is for controlled, consensual outreach.
+
+## Golden rules for driving it
+
+1. **Always pass `--json`** and parse it. Every command prints a JSON object with `ok: true|false`
+   (errors: `{"ok":false,"error":"..."}` + non-zero exit). Never scrape human text.
+2. **Never start a real campaign without `campaign preview` first.** Show the user recipient count,
+   duplicates, invalid emails, missing template vars, attachment problems, and `startBlockers`.
+   `campaign start` itself refuses on 0 recipients or missing/oversized attachments.
+3. **Send a test to the user first** (`campaign test`) and get explicit confirmation before `start`.
+4. **The worker must run** for app-controlled (Mode 1) sends to actually go out
+   (`npm run mq -- worker`). For provider-native scheduling that fires with the app closed, use
+   `--in`/`--at` (Mode 2).
+5. **Trust delivery, not the UI.** A provider "Message sent" toast has produced false positives.
+   When it matters, confirm real delivery (e.g. a Gmail tool / the recipient's inbox / the
+   provider's Scheduled/Sent folder). For scheduled sends, **wait until past the scheduled time**
+   before checking — checking early looks like a failure.
+6. **Run from the repo root** (or use the globally-linked `mailqueue`, which resolves project paths
+   absolutely). If commands error, see Environment check below.
+
+## Environment check (run once before first use)
 
 ```bash
-npm run mq -- <args>          # e.g. npm run mq -- --json campaign list
-# or, if linked:  mailqueue <args>
+node -v                              # need a modern Node (process.loadEnvFile etc.)
+ls prisma/dev.db 2>/dev/null || npm run prisma:migrate   # create the DB if missing
+ls ~/Library/Caches/ms-playwright 2>/dev/null \
+  | grep -qi chromium || npx playwright install chromium # browser for automation
+test -f .env || cp .env.example .env  # set TEST_RECIPIENT_EMAIL to an address the user owns
 ```
 
-## Command reference (all accept `--json`)
+Then verify a provider is logged in: `npm run mq -- --json provider test <provider>` should return
+`status:"sent"`. First time, it opens a browser and waits up to 5 min for manual login.
 
-| Command | Purpose |
-| --- | --- |
-| `campaign create` | Create a draft. Flags: `--name --provider --subject --body\|--body-file --csv --attach <files...> --window HH:MM-HH:MM --tz --days weekdays\|all\|1,2,5 --max-per-hour --max-per-day --delay MIN-MAX --recontact 30\|60\|90\|never`. Also `--config file.json`. |
-| `campaign list` | All campaigns + per-status counts. |
-| `campaign show <id>` | Config, stats, last error. |
-| `campaign preview <id> [--limit N]` | First N rendered emails, missing vars, attachment checks, `canStart`/`startBlockers`. |
-| `campaign import <id> --csv f` | Add recipients to an existing campaign. |
-| `campaign recipients <id> [--status pending\|sent\|failed\|...]` | Per-recipient status. |
-| `campaign test <id> [--to email]` | Send ONE test email (opens a browser). |
-| `campaign start <id>` | Confirm → running. Refuses on 0 recipients or missing attachments. |
-| `campaign pause\|resume\|cancel <id>` | Lifecycle. |
-| `campaign retry <id>` | Requeue failed recipients → pending. |
-| `campaign logs <id> [--out file.csv]` | Send log as JSON (stdout) or CSV file. |
-| `provider login <gmail\|outlook\|zoho>` | Opens a browser; user logs in once (session saved to `browser-profiles/`). |
-| `provider test <p> [--to] [--attach f...] [--in N]` | Smoke-test a provider end to end. |
-| `send --provider <p> --to --subject --body\|--body-file [--attach f...] [--in N \| --at ISO]` | One-off send, no campaign/logging. |
-| `worker [--once]` | Dispatch running campaigns. `--once` = single pass (good for testing). |
-
-Exit codes: `0` ok, `2` send failed, `4` campaign not found, `5` start refused (blockers).
-
-## Standard campaign workflow
+## How to invoke
 
 ```bash
-# 1. First time only: log in to the provider (interactive browser).
+npm run mq -- <args>          # canonical, always works from the repo root
+mailqueue <args>              # if globally linked (postinstall does this; resolves project paths)
+node bin/mailqueue.js <args>  # equivalent direct launcher
+```
+
+Add `--json` right after `mailqueue`/`mq --`, e.g. `npm run mq -- --json campaign list`.
+
+## Core concepts
+
+- **Providers**: `gmail`, `outlook`, `zoho`. Adapter pattern in `providers/`; each implements
+  login/compose/attach/send/schedule/verify with a shared safety gate.
+- **Campaign lifecycle**: `draft → confirmed/running → paused ↔ running → completed | cancelled`.
+  `campaign start` moves draft→running; the worker marks `completed` when no pending recipients
+  remain; serious errors move it to `paused` with `lastError` set.
+- **Recipient states**: `pending → scheduled → sent | failed | skipped`. `skipped` = duplicate or
+  contacted within the re-contact window. `retry` resets `failed → pending`.
+- **Mode 1 (app-controlled)**: worker waits for the window/caps/delay, then sends now. The worker
+  process must stay running. This is the default for campaigns.
+- **Mode 2 (provider-native schedule send)**: `send`/`provider test` with `--in <min>`/`--at <iso>`
+  uses the provider's "Schedule send"/"Send later" dialog; the mail goes out at that time **with
+  the app closed**. (Per-recipient Mode 2 inside campaigns is a roadmap item; today it's exposed
+  via `send`/`provider test`.)
+- **Templates**: `{{first_name}}`, `{{last_name}}`, `{{company}}`, `{{email}}`, plus any CSV column.
+  Missing vars render blank and are surfaced by `campaign preview` (`missingVars`).
+- **CSV**: must have an `email` column; optional `first_name`, `last_name`, `company`, and any
+  extra columns. Emails are trimmed, lowercased, de-duplicated; invalid rows dropped.
+- **Data model** (SQLite via Prisma): `Campaign`, `Recipient`, `SendLog`, `GlobalContactHistory`
+  (cross-campaign de-dup). `GlobalContactHistory` is written on real sends (not test sends), so a
+  recipient contacted within `recontactAfterDays` is auto-skipped in future campaigns.
+
+## Command reference (summary — full detail in `reference/cli.md`)
+
+| Group | Commands |
+| --- | --- |
+| `campaign` | `create` · `list` · `show <id>` · `preview <id>` · `import <id> --csv` · `recipients <id>` · `test <id>` · `start <id>` · `pause/resume/cancel <id>` · `retry <id>` · `logs <id>` |
+| `provider` | `login <p>` · `test <p>` |
+| top-level | `send` · `worker [--once]` |
+
+Exit codes: `0` ok · `2` send failed · `4` campaign not found · `5` start refused (blockers). Run
+`npm run mq -- <cmd> --help` for flags. **Read `reference/cli.md` for every flag + JSON shape.**
+
+## Workflow: run a campaign end to end
+
+```bash
+# 0. (first time per provider) interactive login — opens a browser
 npm run mq -- provider login gmail
 
-# 2. Create from a CSV (needs an `email` column; optional first_name, company, ...).
+# 1. create a draft from a CSV (body in a file keeps multiline/quotes clean)
 npm run mq -- --json campaign create --name "Q3 shops" --provider gmail \
   --subject "Quick question about {{company}}" --body-file body.txt \
-  --csv contacts.csv --attach deck.pdf --max-per-day 25 --delay 300-900
+  --csv contacts.csv --attach deck.pdf \
+  --window 09:00-16:30 --tz America/Chicago --days weekdays \
+  --max-per-hour 10 --max-per-day 25 --delay 300-900 --recontact 30
+#   → capture .id from the JSON
 
-# 3. Preview — STOP and show the user. Check canStart + startBlockers.
+# 2. preview — STOP, show the user. Check canStart / startBlockers / missingVars / attachments.
 npm run mq -- --json campaign preview <id>
 
-# 4. Send the user a test, get their OK.
-npm run mq -- campaign test <id> --to me@example.com
+# 3. send the user a test, get an explicit OK
+npm run mq -- campaign test <id> --to user@theirdomain.com
 
-# 5. Start, then run the worker (keep it running to dispatch gradually).
+# 4. start (refuses on 0 recipients or bad attachments), then run the worker
 npm run mq -- --json campaign start <id>
-npm run mq -- worker
+npm run mq -- worker            # keep running; sends gradually within window+caps
+
+# 5. monitor
+npm run mq -- --json campaign show <id>                       # stats + lastError
+npm run mq -- --json campaign recipients <id> --status failed # who failed and why
+npm run mq -- --json campaign logs <id>                       # full send log
 ```
 
-Monitor with `campaign show <id>` / `campaign recipients <id> --status failed`. If it
-auto-pauses (`lastError` set), tell the user why and don't blindly resume.
+To advance sends deterministically in a test (one pass, ignores randomized delay):
+`npm run mq -- --json worker --once`.
 
-## Schedule send (Mode 2 — fires with the app closed)
-
-`--in <minutes>` or `--at <ISO>` on `send` / `provider test` uses the provider's native
-"Schedule send" / "Send later". Verify by checking the provider's scheduled folder (Gmail
-`in:scheduled`) or by confirming delivery at the scheduled time.
+## Workflow: one-off / scheduled send (no campaign)
 
 ```bash
-npm run mq -- send --provider gmail --to x@y.com --subject "Hi" --body "..." --in 30
+# immediate
+npm run mq -- send --provider gmail --to a@b.com --subject "Hi" --body "..."
+# schedule 30 min out (Mode 2 — fires with the app closed)
+npm run mq -- send --provider gmail --to a@b.com --subject "Hi" --body "..." --in 30
+# schedule at an absolute time
+npm run mq -- send --provider outlook --to a@b.com --subject "Hi" --body-file b.txt --at 2026-07-01T09:00
 ```
+
+`send` does NOT log or write contact history — it's a raw send. For tracked outreach use a campaign.
+
+## Verification discipline (do this, it has caught real bugs)
+
+- After any send, if correctness matters, **confirm real delivery** — don't rely on `status:"sent"`.
+  If a Gmail tool/MCP is available and the recipient is a Gmail address, search for the unique
+  subject; otherwise ask the user to confirm receipt.
+- Give each smoke test a **unique subject** (the CLI stamps an ISO timestamp) so you can find it.
+- For **scheduled** sends: the email won't arrive until the scheduled time. Verify it's queued
+  (Gmail `in:scheduled`, Outlook Drafts, Zoho Outbox), then **wait until after the scheduled
+  minute** and confirm delivery. Checking early is not a failure.
+- Providers enforce a minimum schedule lead time (Gmail/Outlook accept ~3 min; Zoho's presets
+  start at 10 min but its custom picker accepted a few minutes). For real use this is irrelevant
+  (schedule hours/days out); it only matters for fast testing.
+
+## Recovering a paused campaign
+
+```bash
+npm run mq -- --json campaign show <id>     # read lastError
+```
+- `lastError` mentions **captcha / security_warning / account_locked** → STOP. Tell the user to
+  resolve it in the browser themselves. Do NOT auto-resume or try to bypass it.
+- `logged_out` → the session expired; run `provider login <p>` again, then `campaign resume`.
+- "Paused after 3 consecutive failures" → inspect `campaign recipients <id> --status failed` for the
+  reason. If it's a selector break, follow drift recovery below. Then `campaign retry` + `resume`.
 
 ## When a provider's web UI changes (selectors break) → fix + PR
 
-Providers (esp. new Outlook) change their DOM, so a step like compose/attach/send/schedule
-may start failing. **When that happens, fix the code and open a PR.** Workflow:
+Providers (especially the new Outlook) change their DOM, so compose/attach/send/schedule steps
+break periodically. **The standing instruction is: when this happens, fix the code and open a PR**
+(branch, never push to `main`). Short version:
 
-1. **Reproduce + read the error.**
-   ```bash
-   npm run mq -- --json provider test gmail   # note which step + selector failed
-   ```
-   Playwright errors name the locator and what it resolved to (e.g. `/^to/i` matched
-   `aria-label="To Do"`). That tells you which selector in `providers/<p>.ts` is stale.
+1. Reproduce: `npm run mq -- --json provider test <p>` — the Playwright error names the stale
+   locator and what it wrongly matched.
+2. Introspect the live DOM with the `scripts/inspect*.ts` aids (they dump real roles/labels/values
+   and screenshot to `/tmp/*.png`).
+3. Fix `providers/<p>.ts` with stable selectors (role+exact name > `getByLabel` > `data-testid` >
+   placeholder; avoid CSS classes and broad regexes).
+4. Verify: `npx tsc --noEmit` + `npm run mq -- --json provider test <p>` (add `--attach`/`--in` if
+   relevant) → `status:"sent"`, ideally confirm real delivery.
+5. Branch → commit → push → `gh pr create`; report the PR URL to the user.
 
-2. **Introspect the real DOM** with the dev-aid scripts (clone the closest one for the step
-   you need — they open compose against the saved session and dump roles/aria-labels/values
-   of fields + buttons, and screenshot to `/tmp/*.png`):
-   - `scripts/inspectOutlook.ts`, `scripts/inspectZoho.ts` — compose fields.
-   - `scripts/inspectGmailSchedule.ts`, `scripts/inspectOutlookSchedule.ts`,
-     `scripts/inspectZohoSchedule.ts` — schedule-send dialogs.
-   ```bash
-   npx tsx scripts/inspectZoho.ts        # prints exact selectors; Read the /tmp screenshot
-   ```
-   To probe a new surface, copy one and dump:
-   `page.$$eval('button,[role=button],input,[role=textbox],[contenteditable=true]', els => els.map(e => ({role:e.getAttribute('role'), name:e.getAttribute('aria-label')||e.textContent, value:e.value})))`.
+**Read `reference/drift-recovery.md` for the full playbook with real examples, and
+`reference/providers.md` for the current working selector map per provider.**
 
-3. **Fix `providers/<provider>.ts`.** Prefer stable selectors in this order: ARIA role +
-   exact accessible name (`getByRole('button', { name: 'Send', exact: true })`), `getByLabel`,
-   `data-testid`/`data-test-id`, placeholder. Avoid churning CSS classes and broad regexes
-   that match unrelated elements (the "To Do" trap). Editors may be in an iframe
-   (`page.frameLocator('iframe[title="..."]').locator('body')`).
+## Troubleshooting (common errors)
 
-4. **Verify** — `npx tsc --noEmit`, then `npm run mq -- --json provider test <provider>`
-   (add `--attach` / `--in` if you touched attachments/scheduling). Confirm `status:"sent"`.
-   If you can independently confirm delivery (e.g. a Gmail tool/inbox), do — provider "sent"
-   toasts have given false positives before.
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `Invalid db.* invocation` / can't open DB | DB not migrated / wrong CWD | `npm run prisma:migrate`; run from repo root (or use linked `mailqueue`). |
+| `browserType.launch: Executable doesn't exist` | Chromium not installed | `npx playwright install chromium`. |
+| `provider test` returns `logged_out`/`captcha` and hangs ~5 min | not logged in / challenge | `provider login <p>` and complete it manually; never bypass a challenge. |
+| Locator matched the wrong element (e.g. "To Do") | broad selector after UI change | drift recovery — use exact accessible names. |
+| `status:"sent"` but nothing arrives | false-positive verify, or scheduled (not yet due) | confirm via real delivery; for scheduled, wait past the time. |
+| `start` exits code 5 | 0 recipients or missing/oversized attachment | import a CSV / fix the attachment path, re-`preview`. |
+| Zoho send "succeeds" but compose stays open | post-attachment-modal Send no-op | already handled (Cmd/Ctrl+Enter retry); if it regresses, see providers ref. |
 
-5. **Open a PR** (don't push to `main`):
-   ```bash
-   git checkout -b fix/<provider>-selectors-<short-desc>
-   git add -A
-   git commit -m "Fix <provider> <step> selectors after UI change
+## Boundaries — decline these
 
-   <what changed in the DOM and the new selector>. Verified via provider test."
-   git push -u origin HEAD
-   gh pr create --title "Fix <provider> <step> selectors after UI change" \
-     --body "The <provider> web UI changed and broke <step>. <root cause>. New selectors verified end-to-end via \`provider test\`."
-   ```
-   Tell the user the PR URL. Keep the throwaway inspect probe only if it's a reusable dev aid;
-   otherwise delete it before committing.
-
-## Safety boundaries (do not cross)
-
-Don't bypass CAPTCHAs/2FA, hide identity, rotate accounts to dodge limits, scrape inboxes,
-send to purchased lists, or continue after a provider security warning. If the user asks for
-any of these, decline and explain MailQueue is for controlled, consensual outreach.
+No bypassing CAPTCHA/2FA/security challenges, no account rotation to dodge limits, no identity
+spoofing, no inbox scraping, no purchased lists, no abusive volumes/speeds, no continuing after a
+provider security warning. If asked, decline and explain MailQueue's consensual-outreach purpose.
