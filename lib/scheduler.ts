@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { createProvider } from "../providers";
+import { createProvider, splitRecipients } from "../providers";
 import type { Provider } from "../providers";
 import { buildVars, render } from "./templates";
 import {
@@ -136,14 +136,29 @@ export async function sendOneEmail(
   const { bodyHash, attachmentHash } = await campaignHashes(campaign.id);
   const to = testOverrideTo ?? recipient.email;
 
+  // Merge campaign-level cc/bcc with any per-recipient cc/bcc (case-insensitive
+  // de-dup), preserving first-seen order.
+  const mergeAddrs = (...parts: (string | null | undefined)[]): string | undefined => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const part of parts)
+      for (const addr of splitRecipients(part ?? undefined)) {
+        const key = addr.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push(addr);
+        }
+      }
+    return out.length ? out.join(", ") : undefined;
+  };
+  const cc = mergeAddrs(campaign.cc, recipient.cc);
+  const bcc = mergeAddrs(campaign.bcc, recipient.bcc);
+
   const provider = createProvider(campaign.provider as Provider);
   let result;
   try {
     await provider.login();
-    result = await provider.send(
-      { to, cc: campaign.cc ?? undefined, subject, body },
-      attachmentPaths
-    );
+    result = await provider.send({ to, cc, bcc, subject, body }, attachmentPaths);
   } catch (err) {
     result = {
       success: false,

@@ -74,6 +74,17 @@ export default function NewCampaignPage() {
           </div>
 
           <div>
+            <label className="label" htmlFor="bcc">
+              BCC <span className="text-slate-500">(optional)</span>
+            </label>
+            <input id="bcc" name="bcc" className="input" placeholder="archive@yourco.com" />
+            <p className="mt-1 text-xs text-slate-500">
+              Fixed BCC recipient(s), comma-separated. A <code>cc</code>/<code>bcc</code>{" "}
+              column in your CSV adds per-recipient addresses on top of these.
+            </p>
+          </div>
+
+          <div>
             <label className="label" htmlFor="bodyTemplate">
               Email body
             </label>

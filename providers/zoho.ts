@@ -60,6 +60,19 @@ export class ZohoProvider extends BaseProvider {
       // uses focus(), so neither needs a pointer click the CC popup could block.
     }
 
+    // BCC — hidden until the "Add Bcc recipients" toggle is clicked.
+    const bccList = splitRecipients(input.bcc);
+    if (bccList.length) {
+      await page.getByRole("button", { name: /add bcc recipients/i }).first().click();
+      const bcc = page.getByRole("combobox", { name: /bcc recipients/i }).first();
+      await bcc.click();
+      for (const addr of bccList) {
+        await bcc.fill(addr);
+        await page.keyboard.press("Enter");
+      }
+      // Same as CC: no Escape (would pop the blocking modal).
+    }
+
     // Subject is an input identified only by its placeholder. Use fill() without
     // a preceding click so a lingering CC suggestion popup can't intercept it.
     const subject = page.getByPlaceholder("Subject", { exact: true }).first();

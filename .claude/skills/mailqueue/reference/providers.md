@@ -38,6 +38,7 @@ Gmail `mail.google.com`, Outlook `outlook.` (covers office.com/live.com/cloud.mi
 | Dialog | `getByRole('dialog')` |
 | To | `dialog.getByRole('combobox', { name: /to recipients\|to/i })` → fill → `Tab` |
 | CC | reveal first: `dialog.getByRole('link', { name: /add cc recipients/i })` (it's a **link**, not a button), then `dialog.getByRole('combobox', { name: /cc recipients/i })` → fill each + `Enter` |
+| BCC | reveal: `dialog.getByRole('link', { name: /add bcc recipients/i })`, then `dialog.getByRole('combobox', { name: /bcc recipients/i })` → fill each + `Enter` |
 | Subject | `dialog.getByRole('textbox', { name: /subject/i })` |
 | Body | `dialog.getByRole('textbox', { name: /message body/i })` |
 | Attach | "Attach files" button triggers a `filechooser`; wait for `/uploading/i` to go hidden |
@@ -62,6 +63,7 @@ on an account picker (`?prompt=select_account`).
 | Compose | New-Outlook ribbon button is just **"New"** (not "New mail"): try `/new mail/i`, `/new message/i`, then `/^new$/i`; handle an optional dropdown menuitem `/mail\|email/i` |
 | To | `getByLabel('To', { exact: true })` — a contenteditable `div`, exact label avoids "To Do". After fill+Enter, press **`Escape`** to close the people-picker popup so it can't overlay Cc/Subject |
 | CC | `getByLabel('Cc', { exact: true })` (inline contenteditable div) → fill each + `Enter`, then `Escape` |
+| BCC | reveal: `getByRole('button', { name: 'Bcc', exact: true })`, then `getByLabel('Bcc', { exact: true })` → fill each + `Enter`, then `Escape` |
 | Subject | `getByRole('textbox', { name: 'Subject', exact: true })` (an `<input>`) |
 | Body | `getByRole('textbox', { name: 'Message body' })` |
 | Attach | button `/attach file/i` → menu `/browse this computer\|this computer\|upload from/i` triggers the `filechooser` |
@@ -81,6 +83,7 @@ send too early.
 | Compose | `getByRole('button', { name: /new mail\|compose/i })` |
 | To | `getByRole('combobox', { name: /to recipients/i })` → fill → `Enter`. **Do NOT press `Escape`** (see below) |
 | CC | `getByRole('combobox', { name: /cc recipients/i })` → fill each + `Enter`. No Escape |
+| BCC | reveal: `getByRole('button', { name: /add bcc recipients/i })` (a `<font role=button>`), then `getByRole('combobox', { name: /bcc recipients/i })` → fill each + `Enter`. No Escape |
 | Subject | `getByPlaceholder('Subject', { exact: true })` — use **`fill()` without a preceding `click()`** (a recipient popup can overlay it) |
 | Body | **inside an iframe**: `frameLocator('iframe[title="Text editor area"], iframe.ze_area').locator('body')` → **`focus()`** (not click) → `ControlOrMeta+a` → type. (`#wms-pasteCapture` is a 0×0 decoy — do not target it.) |
 | Attach | button `"Attachment"` (exact) opens a **modal** → button `/upload files/i` triggers `filechooser` → button `"Attach"` (exact) confirms; wait for the modal to close |

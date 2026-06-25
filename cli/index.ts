@@ -39,7 +39,7 @@ const program = new Command();
 program
   .name("mailqueue")
   .description("Controlled, scheduled, multi-provider email outreach (CLI).")
-  .version("0.1.0")
+  .version("0.2.0")
   .option("--json", "machine-readable JSON output (use this when scripting)")
   .hook("preAction", (thisCmd) => {
     setJsonMode(Boolean(thisCmd.opts().json));
@@ -65,7 +65,8 @@ campaign
   .option("--body <text>")
   .option("--body-file <file>")
   .option("--cc <emails>", "fixed CC recipient(s), comma-separated, applied to every send")
-  .option("--csv <file>", "recipients CSV (needs an `email` column)")
+  .option("--bcc <emails>", "fixed BCC recipient(s), comma-separated, applied to every send")
+  .option("--csv <file>", "recipients CSV (email col required; optional cc/bcc cols are per-recipient)")
   .option("--attach <file...>", "attachment file path(s)")
   .option("--window <HH:MM-HH:MM>", "sending window (local to --tz)")
   .option("--tz <timezone>", "IANA timezone", "America/Chicago")
@@ -88,6 +89,7 @@ campaign
       subjectTemplate: opts.subject ?? cfg.subject,
       bodyTemplate: opts.body || opts.bodyFile ? readBody(opts) : cfg.body,
       cc: opts.cc ?? cfg.cc,
+      bcc: opts.bcc ?? cfg.bcc,
       attachmentPaths,
       sendingWindowStart: window.start,
       sendingWindowEnd: window.end,
@@ -109,6 +111,7 @@ campaign
         subjectTemplate: values.subjectTemplate,
         bodyTemplate: values.bodyTemplate,
         cc: values.cc ?? null,
+        bcc: values.bcc ?? null,
         attachmentPaths: JSON.stringify(attachmentPaths),
         sendingWindowStart: values.sendingWindowStart,
         sendingWindowEnd: values.sendingWindowEnd,
@@ -217,6 +220,7 @@ campaign
         status: c.status,
         subject: c.subjectTemplate,
         cc: c.cc,
+        bcc: c.bcc,
         window: `${c.sendingWindowStart}-${c.sendingWindowEnd} ${c.timezone}`,
         sendDays: parseSendDays(c.sendDaysJson),
         caps: { maxPerHour: c.maxPerHour, maxPerDay: c.maxPerDay },
@@ -473,6 +477,7 @@ provider
   .description("Send a smoke-test email to verify a provider end to end")
   .option("--to <email>", "recipient (default TEST_RECIPIENT_EMAIL)")
   .option("--cc <emails>", "CC recipient(s), comma-separated")
+  .option("--bcc <emails>", "BCC recipient(s), comma-separated")
   .option("--attach <file...>", "attachment file path(s)")
   .option("--in <spec>", "schedule N minutes out (Mode 2), e.g. --in 10")
   .action(async (p, opts) => {
@@ -486,6 +491,7 @@ provider
       {
         to,
         cc: opts.cc,
+        bcc: opts.bcc,
         subject: `MailQueue test ${new Date().toISOString()} (${prov})`,
         body: "MailQueue provider smoke test.",
       },
@@ -508,6 +514,7 @@ program
   .requiredOption("--provider <provider>", "gmail | outlook | zoho")
   .requiredOption("--to <email>")
   .option("--cc <emails>", "CC recipient(s), comma-separated")
+  .option("--bcc <emails>", "BCC recipient(s), comma-separated")
   .requiredOption("--subject <subject>")
   .option("--body <text>")
   .option("--body-file <file>")
@@ -521,7 +528,7 @@ program
     const scheduleAt = parseScheduleAt(opts.in ?? opts.at);
     const result = await sendOneOff(
       prov,
-      { to: opts.to, cc: opts.cc, subject: opts.subject, body },
+      { to: opts.to, cc: opts.cc, bcc: opts.bcc, subject: opts.subject, body },
       attachments,
       scheduleAt,
       { onStatus: (m) => !isJson() && console.error(m) }

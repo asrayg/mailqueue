@@ -23,7 +23,8 @@ Create a draft campaign. Flags override a `--config` JSON file.
 | `--subject <s>` | Subject template (supports `{{vars}}`). |
 | `--body <s>` / `--body-file <f>` | Body template. Prefer `--body-file` for multiline. |
 | `--cc <emails>` | Fixed CC recipient(s), comma-separated, added to every send. |
-| `--csv <f>` | Recipients CSV (needs `email` column). |
+| `--bcc <emails>` | Fixed BCC recipient(s), comma-separated, added to every send. |
+| `--csv <f>` | Recipients CSV. Needs `email`; optional `cc`/`bcc` columns add **per-recipient** addresses (merged with the campaign-level `--cc`/`--bcc`, de-duped). |
 | `--attach <f...>` | One or more attachment paths (verified to exist). |
 | `--window <HH:MM-HH:MM>` | Sending window, local to `--tz`. Default `09:00-16:30`. |
 | `--tz <IANA>` | Timezone. Default `America/Chicago`. |
@@ -142,10 +143,10 @@ signal (captcha/security/logout) — do not retry blindly.
 ## `send` (one-off, no campaign, no logging)
 ```
 send --provider <p> --to <email> --subject <s> (--body <s> | --body-file <f>)
-     [--cc <emails>] [--attach <f...>] [--in <min> | --at <iso>]
+     [--cc <emails>] [--bcc <emails>] [--attach <f...>] [--in <min> | --at <iso>]
 ```
-`--cc` (and `provider test --cc`) takes comma-separated CC addresses. CC is supported on all three
-providers and verified end-to-end.
+`--cc` / `--bcc` (also on `provider test`) take comma-separated addresses. CC and BCC are supported on
+all three providers and verified end-to-end (BCC confirmed via `deliveredto:` / cross-mailbox).
 `--in N` schedules N minutes out; `--at <iso>` schedules at an absolute datetime (both Mode 2).
 ```json
 { "ok": true, "provider": "gmail", "to": "a@b.com", "scheduledAt": "2026-07-01T14:00:00.000Z",

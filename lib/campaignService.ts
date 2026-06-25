@@ -44,6 +44,8 @@ export async function addRecipients(
       firstName: r.firstName,
       lastName: r.lastName,
       company: r.company,
+      cc: r.cc,
+      bcc: r.bcc,
       metadataJson: JSON.stringify(r.metadata ?? {}),
     }));
 

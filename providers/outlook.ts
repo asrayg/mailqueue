@@ -87,6 +87,19 @@ export class OutlookProvider extends BaseProvider {
       await page.keyboard.press("Escape");
     }
 
+    // BCC — hidden until the "Bcc" toggle is clicked; then an inline "Bcc" div.
+    const bccList = splitRecipients(input.bcc);
+    if (bccList.length) {
+      await page.getByRole("button", { name: "Bcc", exact: true }).first().click();
+      const bcc = page.getByLabel("Bcc", { exact: true }).first();
+      await bcc.click();
+      for (const addr of bccList) {
+        await bcc.fill(addr);
+        await page.keyboard.press("Enter");
+      }
+      await page.keyboard.press("Escape");
+    }
+
     const subject = page
       .getByRole("textbox", { name: "Subject", exact: true })
       .or(page.getByLabel("Subject", { exact: true }))

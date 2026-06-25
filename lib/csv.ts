@@ -6,6 +6,8 @@ export interface ParsedRecipient {
   firstName?: string;
   lastName?: string;
   company?: string;
+  cc?: string;
+  bcc?: string;
   metadata: Record<string, string>;
 }
 
@@ -18,7 +20,10 @@ export interface CsvParseResult {
 }
 
 // CSV header aliases mapped to canonical recipient fields.
-const FIELD_ALIASES: Record<string, "email" | "firstName" | "lastName" | "company"> = {
+const FIELD_ALIASES: Record<
+  string,
+  "email" | "firstName" | "lastName" | "company" | "cc" | "bcc"
+> = {
   email: "email",
   "e-mail": "email",
   first_name: "firstName",
@@ -30,6 +35,8 @@ const FIELD_ALIASES: Record<string, "email" | "firstName" | "lastName" | "compan
   company: "company",
   organization: "company",
   org: "company",
+  cc: "cc",
+  bcc: "bcc",
 };
 
 /**
@@ -59,6 +66,8 @@ export function parseRecipientsCsv(csv: string): CsvParseResult {
     let firstName: string | undefined;
     let lastName: string | undefined;
     let company: string | undefined;
+    let cc: string | undefined;
+    let bcc: string | undefined;
 
     for (const [rawKey, rawVal] of Object.entries(row)) {
       const key = rawKey.trim().toLowerCase();
@@ -69,6 +78,8 @@ export function parseRecipientsCsv(csv: string): CsvParseResult {
       else if (canonical === "firstName") firstName = val || undefined;
       else if (canonical === "lastName") lastName = val || undefined;
       else if (canonical === "company") company = val || undefined;
+      else if (canonical === "cc") cc = val || undefined;
+      else if (canonical === "bcc") bcc = val || undefined;
       else if (val) metadata[key] = val;
     }
 
@@ -83,7 +94,7 @@ export function parseRecipientsCsv(csv: string): CsvParseResult {
       continue;
     }
     seen.add(email);
-    valid.push({ email, firstName, lastName, company, metadata });
+    valid.push({ email, firstName, lastName, company, cc, bcc, metadata });
   }
 
   return {

@@ -97,11 +97,13 @@ Add `--json` right after `mailqueue`/`mq --`, e.g. `npm run mq -- --json campaig
   via `send`/`provider test`.)
 - **Templates**: `{{first_name}}`, `{{last_name}}`, `{{company}}`, `{{email}}`, plus any CSV column.
   Missing vars render blank and are surfaced by `campaign preview` (`missingVars`).
-- **CSV**: must have an `email` column; optional `first_name`, `last_name`, `company`, and any
-  extra columns. Emails are trimmed, lowercased, de-duplicated; invalid rows dropped.
-- **CC**: supported on all three providers. A campaign-level fixed CC (`campaign create --cc`, stored
-  on the campaign) is added to every send; one-off `send`/`provider test` take `--cc` too. Comma-
-  separated for multiple. (BCC is not implemented yet.)
+- **CSV**: must have an `email` column; optional `first_name`, `last_name`, `company`, `cc`, `bcc`,
+  and any extra columns (extras become `{{template}}` vars). Emails are trimmed, lowercased,
+  de-duplicated; invalid rows dropped.
+- **CC / BCC**: supported on all three providers. Campaign-level fixed lists (`campaign create --cc`
+  / `--bcc`, stored on the campaign) are added to every send; one-off `send`/`provider test` take
+  `--cc`/`--bcc` too. **Per-recipient**: a `cc` and/or `bcc` column in the CSV adds addresses for that
+  row, merged (de-duped) with the campaign-level lists at send time. Comma-separated for multiple.
 - **Data model** (SQLite via Prisma): `Campaign`, `Recipient`, `SendLog`, `GlobalContactHistory`
   (cross-campaign de-dup). `GlobalContactHistory` is written on real sends (not test sends), so a
   recipient contacted within `recontactAfterDays` is auto-skipped in future campaigns.

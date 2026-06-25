@@ -46,6 +46,18 @@ export class GmailProvider extends BaseProvider {
       }
     }
 
+    // BCC (also hidden until the "Bcc" link is clicked).
+    const bccList = splitRecipients(input.bcc);
+    if (bccList.length) {
+      await dialog.getByRole("link", { name: /add bcc recipients/i }).first().click();
+      const bcc = dialog.getByRole("combobox", { name: /bcc recipients/i }).first();
+      await bcc.click();
+      for (const addr of bccList) {
+        await bcc.fill(addr);
+        await page.keyboard.press("Enter");
+      }
+    }
+
     // Subject
     const subject = dialog.getByRole("textbox", { name: /subject/i });
     await subject.click();

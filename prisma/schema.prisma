@@ -15,8 +15,9 @@ model Campaign {
   subjectTemplate String
   bodyTemplate    String
 
-  // Optional fixed CC recipients (comma-separated), applied to every send.
-  cc String?
+  // Optional fixed CC / BCC recipients (comma-separated), applied to every send.
+  cc  String?
+  bcc String?
 
   // JSON-encoded string[] of absolute attachment paths.
   attachmentPaths String @default("[]")
@@ -62,6 +63,11 @@ model Recipient {
   firstName  String?
   lastName   String?
   company    String?
+
+  // Optional per-recipient CC / BCC (comma-separated) from CSV columns; merged
+  // with the campaign-level cc/bcc at send time.
+  cc  String?
+  bcc String?
 
   // JSON object of extra CSV columns for template substitution.
   metadataJson String?

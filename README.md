@@ -131,9 +131,16 @@ Code can drive the CLI safely: the standard create→preview→test→start work
 
 ### CSV format
 
-Requires an `email` column. Optional: `first_name`, `last_name`, `company`, and
-any extra columns (available as `{{column_name}}`). See
-[`examples/contacts.sample.csv`](examples/contacts.sample.csv).
+Requires an `email` column. Optional: `first_name`, `last_name`, `company`,
+`cc`, `bcc`, and any extra columns (available as `{{column_name}}`). The `cc`/
+`bcc` columns add **per-recipient** CC/BCC, merged with the campaign-level
+`--cc`/`--bcc`. See [`examples/contacts.sample.csv`](examples/contacts.sample.csv).
+
+### CC / BCC
+
+Set a fixed CC/BCC on the whole campaign with `--cc` / `--bcc` (CLI) or the
+new-campaign form, and/or per-recipient via CSV `cc`/`bcc` columns. Supported and
+verified end-to-end on Gmail, Outlook, and Zoho.
 
 ### Template variables
 

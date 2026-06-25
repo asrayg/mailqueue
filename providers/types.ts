@@ -6,6 +6,8 @@ export interface ComposeEmailInput {
   to: string;
   /** Optional CC recipients — comma/semicolon-separated. */
   cc?: string;
+  /** Optional BCC recipients — comma/semicolon-separated. */
+  bcc?: string;
   subject: string;
   body: string;
 }

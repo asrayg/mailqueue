@@ -20,6 +20,7 @@ export const campaignFormSchema = z.object({
   subjectTemplate: z.string().min(1, "Subject is required").max(998),
   bodyTemplate: z.string().min(1, "Body is required"),
   cc: z.string().optional(),
+  bcc: z.string().optional(),
   attachmentPaths: z.array(z.string()).default([]),
   sendingWindowStart: z
     .string()
