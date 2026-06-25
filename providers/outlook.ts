@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { BaseProvider } from "./base";
 import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
+import { format12hTime } from "../lib/time";
 
 /**
  * Outlook web (outlook.live.com / outlook.office.com) automation. Outlook is
@@ -104,11 +105,57 @@ export class OutlookProvider extends BaseProvider {
       .catch(() => {});
   }
 
-  protected async uiSend(page: Page, _input: SendTimingInput): Promise<void> {
+  protected async uiSend(page: Page, input: SendTimingInput): Promise<void> {
+    if (input.scheduleAt) {
+      await this.uiScheduleSend(page, input.scheduleAt);
+      return;
+    }
     const sendBtn = page.getByRole("button", { name: "Send", exact: true }).first();
     await sendBtn.waitFor({ timeout: 20_000 });
     if (await sendBtn.isDisabled()) throw new Error("Send button is disabled");
     await sendBtn.click();
+  }
+
+  /**
+   * Outlook "Schedule send": the dropdown next to Send ("More send options") →
+   * "Schedule send" → "Custom time" opens a "Set custom date and time" dialog
+   * with editable date ("M/D/YYYY") and time ("h:mm AM/PM") comboboxes and a
+   * Send button. The mail then sends at that time with the app closed.
+   */
+  private async uiScheduleSend(page: Page, when: Date): Promise<void> {
+    await page.getByRole("button", { name: /more send options/i }).first().click();
+    await page.getByRole("menuitem", { name: /schedule send|send later/i }).first().click();
+
+    const custom = page.getByRole("button", { name: /custom time/i }).first();
+    await custom.waitFor({ timeout: 15_000 });
+    await custom.click();
+
+    const dialog = page.getByRole("dialog").filter({ hasText: /custom date and time/i });
+    await dialog.waitFor({ timeout: 10_000 });
+
+    // The date and time fields are unlabeled comboboxes — identify them by the
+    // format of their current value.
+    const combos = dialog.getByRole("combobox");
+    const count = await combos.count();
+    let dateBox = combos.first();
+    let timeBox = combos.last();
+    for (let i = 0; i < count; i++) {
+      const v = (await combos.nth(i).inputValue().catch(() => "")) || "";
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(v)) dateBox = combos.nth(i);
+      else if (/\d{1,2}:\d{2}\s*(AM|PM)/i.test(v)) timeBox = combos.nth(i);
+    }
+
+    const dateStr = `${when.getMonth() + 1}/${when.getDate()}/${when.getFullYear()}`;
+    await dateBox.click();
+    await dateBox.fill(dateStr);
+    await page.keyboard.press("Enter");
+
+    await timeBox.click();
+    await timeBox.fill(format12hTime(when));
+    await page.keyboard.press("Enter");
+
+    const confirm = dialog.getByRole("button", { name: "Send", exact: true }).first();
+    await confirm.click();
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {

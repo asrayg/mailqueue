@@ -96,7 +96,11 @@ export class ZohoProvider extends BaseProvider {
       .catch(() => {});
   }
 
-  protected async uiSend(page: Page, _input: SendTimingInput): Promise<void> {
+  protected async uiSend(page: Page, input: SendTimingInput): Promise<void> {
+    if (input.scheduleAt) {
+      await this.uiScheduleSend(page, input.scheduleAt);
+      return;
+    }
     const sendBtn = page.getByRole("button", { name: "Send", exact: true }).first();
     await sendBtn.waitFor({ timeout: 20_000 });
     if (await sendBtn.isDisabled()) throw new Error("Send button is disabled");
@@ -113,6 +117,58 @@ export class ZohoProvider extends BaseProvider {
         await sendBtn.click().catch(() => {});
       }
     }
+  }
+
+  /**
+   * Zoho "Send Later": opens a Schedule dialog. Pick "Custom Date and Time",
+   * set the date (defaults to today) + 24-hour Hour/Minute spinbuttons, then
+   * "Schedule and Send". The mail sends at that time with the app closed.
+   * Zoho enforces a minimum lead time (its soonest preset is 10 minutes).
+   */
+  private async uiScheduleSend(page: Page, when: Date): Promise<void> {
+    await page.locator('[data-testid="com_send_later"]').first().click();
+
+    // "Schedule" tab is the default; choose Custom Date and Time.
+    await page.getByText(/custom date and time/i).first().click();
+
+    // Set the date if it differs from today's default (MM/DD/YYYY dropdown).
+    await this.setZohoDate(page, when).catch(() => {});
+
+    // 24-hour Hour/Minute spinbuttons.
+    const hour = page.getByRole("spinbutton", { name: "Hour" }).first();
+    const minute = page.getByRole("spinbutton", { name: "Minute" }).first();
+    await hour.click();
+    await hour.fill(String(when.getHours()).padStart(2, "0"));
+    await minute.click();
+    await minute.fill(String(when.getMinutes()).padStart(2, "0"));
+    await page.keyboard.press("Tab");
+
+    const confirm = page.getByRole("button", { name: /schedule and send/i }).first();
+    await confirm.waitFor({ timeout: 10_000 });
+    if (await confirm.isDisabled().catch(() => false)) {
+      throw new Error("Zoho rejected the scheduled time (below its minimum lead time)");
+    }
+    await confirm.click();
+  }
+
+  /** Set the Zoho "Select Date" field when the target isn't today's default. */
+  private async setZohoDate(page: Page, when: Date): Promise<void> {
+    const mm = String(when.getMonth() + 1).padStart(2, "0");
+    const dd = String(when.getDate()).padStart(2, "0");
+    const target = `${mm}/${dd}/${when.getFullYear()}`;
+    // The date dropdown shows the current selection; if it already matches
+    // today and that's our target, nothing to do.
+    const dateField = page
+      .getByText(/^\d{2}\/\d{2}\/\d{4}$/)
+      .filter({ hasText: target })
+      .first();
+    if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) return;
+    // Otherwise open the calendar and pick the day number in the current month.
+    await page.getByText(/^\d{2}\/\d{2}\/\d{4}$/).first().click().catch(() => {});
+    const dayCell = page
+      .getByRole("gridcell", { name: String(when.getDate()), exact: true })
+      .first();
+    await dayCell.click({ timeout: 3000 }).catch(() => {});
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {

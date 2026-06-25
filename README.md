@@ -50,8 +50,11 @@ npm run worker   # the process that actually sends, gradually
 ```
 
 > Mode 1 (app-controlled scheduling) is the default: the **worker must stay
-> running** for emails to go out. Provider-native "schedule send" (Mode 2) is a
-> future addition.
+> running** for emails to go out. **Mode 2 (provider-native "Schedule send" /
+> "Send later")** is also implemented at the provider layer and validated on all
+> three providers — pass a `scheduleAt` to the adapter and the mail goes out at
+> that time even with the app closed. (Wiring Mode 2 into campaign scheduling
+> from the dashboard is the next integration step.)
 
 ### First-time provider login
 
@@ -62,7 +65,9 @@ manually** (including 2FA) — MailQueue then reuses that persistent session fro
 Smoke-test a provider end to end:
 
 ```bash
-npm run test:gmail   # or test:outlook / test:zoho
+npm run test:gmail                              # or test:outlook / test:zoho
+npx tsx scripts/testProvider.ts gmail a.png b.pdf   # with attachments
+npx tsx scripts/testProvider.ts gmail --in=10       # schedule-send 10 min out (Mode 2)
 ```
 
 ---
@@ -132,5 +137,6 @@ scripts/             provider smoke tests
 
 ## Roadmap
 
-- Mode 2: provider-native schedule-send
+- Wire Mode 2 (provider-native schedule-send, already implemented + validated at
+  the provider layer) into per-recipient campaign scheduling from the dashboard
 - v2 follow-ups (skip on reply / not-interested, max one by default)

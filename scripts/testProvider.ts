@@ -28,9 +28,18 @@ async function main() {
     process.exit(1);
   }
 
-  // Any extra args after the provider are treated as attachment file paths.
-  const attachments = process.argv.slice(3);
+  // Extra args after the provider: --in=<minutes> schedules the send that many
+  // minutes in the future (Mode 2). Anything else is an attachment file path.
+  const rest = process.argv.slice(3);
+  let scheduleAt: Date | undefined;
+  const attachments: string[] = [];
+  for (const a of rest) {
+    const m = a.match(/^--in=(\d+)$/);
+    if (m) scheduleAt = new Date(Date.now() + parseInt(m[1], 10) * 60_000);
+    else attachments.push(a);
+  }
   if (attachments.length) console.log(`[${arg}] Attachments: ${attachments.join(", ")}`);
+  if (scheduleAt) console.log(`[${arg}] Schedule send at: ${scheduleAt.toString()}`);
 
   const provider = createProvider(arg);
   console.log(`[${arg}] Launching browser. Log in if prompted...`);
@@ -76,7 +85,8 @@ async function main() {
       subject: `MailQueue test ${new Date().toISOString()} (${arg})`,
       body: "This is a MailQueue provider smoke test. If you received this, the automation works.",
     },
-    attachments
+    attachments,
+    scheduleAt ? { scheduleAt } : undefined
   );
 
   // Capture a screenshot of the final state for inspection.

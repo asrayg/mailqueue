@@ -36,6 +36,25 @@ export function formatLocal(date: Date, timezone: string): string {
   return formatInTimeZone(date, timezone, "yyyy-MM-dd HH:mm zzz");
 }
 
+const MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** "8:23 PM" — 12-hour clock, used by provider schedule-send time inputs. */
+export function format12hTime(d: Date): string {
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+/** "24 Jun" — matches Gmail's schedule-picker calendar gridcell accessible names. */
+export function dayMonthCell(d: Date): string {
+  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+}
+
 /**
  * Rough estimate of completion: remaining recipients / per-day cap, accounting
  * for average delay. Returns an estimated finish Date (best-effort, naive).

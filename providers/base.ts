@@ -19,6 +19,9 @@ export abstract class BaseProvider implements MailProviderAdapter {
   protected context?: BrowserContext;
   protected page?: Page;
 
+  /** True while the current send is using provider-native schedule send (Mode 2). */
+  protected isScheduling = false;
+
   /** URL the mailbox lives at, used to detect "are we still logged in". */
   protected abstract readonly mailboxUrl: string;
 
@@ -91,6 +94,8 @@ export abstract class BaseProvider implements MailProviderAdapter {
     try {
       const pre = await this.checkSafety();
       if (pre) return { success: false, status: "failed", error: `${pre.kind}: ${pre.detail}`, serious: true };
+
+      this.isScheduling = !!timing.scheduleAt;
 
       await this.composeEmail(input);
       await this.attachFiles(filePaths);
