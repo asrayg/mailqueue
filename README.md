@@ -72,7 +72,45 @@ npx tsx scripts/testProvider.ts gmail --in=10       # schedule-send 10 min out (
 
 ---
 
-## Typical flow
+## CLI
+
+Everything the dashboard does is available from the terminal via `mailqueue`
+(run as `npm run mq -- <args>`, or `mailqueue <args>` if globally linked). Every
+command accepts `--json` for machine-readable output.
+
+```bash
+# log in once per provider (opens a browser; session is saved)
+npm run mq -- provider login gmail
+
+# create → preview → test → start
+npm run mq -- --json campaign create --name "Q3 shops" --provider gmail \
+  --subject "Quick question about {{company}}" --body-file body.txt \
+  --csv contacts.csv --attach deck.pdf --max-per-day 25 --delay 300-900
+npm run mq -- --json campaign preview <id>      # rendered emails + blockers
+npm run mq -- campaign test <id> --to me@x.com  # one test email
+npm run mq -- --json campaign start <id>
+npm run mq -- worker                            # dispatch gradually (keep running)
+
+# one-off / scheduled send, no campaign
+npm run mq -- send --provider gmail --to a@b.com --subject Hi --body "..." --in 30
+```
+
+Command groups: `campaign {create,list,show,preview,import,recipients,test,start,
+pause,resume,cancel,retry,logs}`, `provider {login,test}`, `send`, `worker`.
+Run `npm run mq -- --help` (or `... <command> --help`) for full flags.
+
+### Claude Code skill
+
+This repo ships a [`mailqueue` skill](.claude/skills/mailqueue/SKILL.md) so Claude
+Code can drive the CLI safely: the standard create→preview→test→start workflow,
+`--json` parsing, and — when a provider's web UI changes and selectors break — a
+**recover-and-PR** workflow (reproduce → introspect the live DOM with the
+`scripts/inspect*.ts` aids → fix `providers/<p>.ts` → verify with `provider test`
+→ open a PR with `gh`). It will not bypass CAPTCHA/2FA or other anti-abuse systems.
+
+---
+
+## Typical flow (dashboard)
 
 1. **New Campaign** — name, provider, subject, body, attachments, CSV, sending
    window, caps, delay range.
@@ -119,11 +157,14 @@ continue after a provider warning.
 ```
 app/                 Next.js pages + server actions
   campaigns/         list · new · [id] dashboard · [id]/preview · [id]/logs export
+cli/                 mailqueue CLI (index.ts commands · util · providerSend)
+bin/mailqueue.js     CLI launcher (runs cli/index.ts via tsx)
 lib/                 db, csv, templates, validation, limits, time, hashing, scheduler
 providers/           types · base · gmail · outlook · zoho · index (adapter pattern)
 worker/sendWorker.ts the gradual send loop (Mode 1)
 prisma/schema.prisma Campaign · Recipient · SendLog · GlobalContactHistory
-scripts/             provider smoke tests
+scripts/             provider smoke tests + inspect*.ts DOM-introspection dev aids
+.claude/skills/      mailqueue Claude Code skill
 ```
 
 ## Scripts
@@ -131,6 +172,7 @@ scripts/             provider smoke tests
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Next.js dashboard |
+| `npm run mq -- <args>` | The MailQueue CLI (`--help` for commands) |
 | `npm run worker` | Gradual send worker (must run to send) |
 | `npm run prisma:migrate` | Apply DB migrations |
 | `npm run test:gmail` / `:outlook` / `:zoho` | Provider smoke test |
