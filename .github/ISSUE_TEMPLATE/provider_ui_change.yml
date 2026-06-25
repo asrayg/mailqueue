@@ -1,0 +1,43 @@
+name: "🧩 Provider UI changed (selectors broke)"
+description: A Gmail / Outlook / Zoho web UI change broke MailQueue automation.
+title: "[provider-drift] <provider>: <step> broke"
+labels: ["provider-drift"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Providers change their web UI often. Tell us which step broke and paste the
+        Playwright error — it usually names the stale selector. See
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) for the fix-and-PR workflow.
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options: [gmail, outlook, zoho]
+    validations:
+      required: true
+  - type: dropdown
+    id: step
+    attributes:
+      label: Which step broke?
+      options: [open mailbox / login, compose, fill recipient/subject/body, attach files, send, schedule send, verify sent]
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error output
+      description: Output of `npm run mq -- --json provider test <provider>` (or the failing command).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: account-type
+    attributes:
+      label: Account type (if relevant)
+      description: e.g. personal Gmail, Outlook work/school (outlook.office.com), Zoho regional host.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Screenshots of the new DOM, the selector you think changed, etc.

@@ -1,5 +1,8 @@
 # MailQueue
 
+[![CI](https://github.com/asrayg/mailqueue/actions/workflows/ci.yml/badge.svg)](https://github.com/asrayg/mailqueue/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Controlled, scheduled, multi-provider email outreach via browser automation.
 
 MailQueue sends the same (or lightly personalized) email to many recipients
@@ -189,10 +192,11 @@ scripts/             provider smoke tests + inspect*.ts DOM-introspection dev ai
 
 ## Contributing
 
-Issues and PRs welcome. If a provider's web UI changes and breaks the
-automation, the fix is usually a selector update in `providers/<provider>.ts` —
-use the `scripts/inspect*.ts` DOM-introspection aids to find the new selectors,
-verify with `npm run mq -- provider test <provider>`, and open a PR.
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If a provider's
+web UI changes and breaks the automation, the fix is usually a selector update in
+`providers/<provider>.ts`: use the `scripts/inspect*.ts` DOM-introspection aids to
+find the new selectors, verify with `npm run mq -- provider test <provider>`, and
+open a PR. There's a dedicated **"Provider UI changed"** issue template.
 
 ## License
 
