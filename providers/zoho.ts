@@ -125,6 +125,10 @@ export class ZohoProvider extends BaseProvider {
       .first()
       .waitFor({ state: "hidden", timeout: 180_000 })
       .catch(() => {});
+
+    // Zoho can render the attachment chips before its compose actions are ready
+    // again. Give the toolbar a short settling window before Send Later/Send.
+    await page.waitForTimeout(20_000);
   }
 
   protected async uiSend(page: Page, input: SendTimingInput): Promise<void> {
@@ -157,10 +161,22 @@ export class ZohoProvider extends BaseProvider {
    * Zoho enforces a minimum lead time (its soonest preset is 10 minutes).
    */
   private async uiScheduleSend(page: Page, when: Date): Promise<void> {
-    await page.locator('[data-testid="com_send_later"]').first().click();
+    const customOption = page.getByText(/custom date and time/i).first();
+    const sendLater = page
+      .locator('[data-testid="com_send_later"]')
+      .or(page.getByRole("button", { name: /send later/i }))
+      .first();
+
+    await sendLater.waitFor({ timeout: 20_000 });
+    await sendLater.click();
+    if (!(await customOption.isVisible({ timeout: 5000 }).catch(() => false))) {
+      await page.waitForTimeout(3000);
+      await sendLater.click({ force: true });
+    }
+    await customOption.waitFor({ timeout: 15_000 });
 
     // "Schedule" tab is the default; choose Custom Date and Time.
-    await page.getByText(/custom date and time/i).first().click();
+    await customOption.click();
 
     // Set the date if it differs from today's default (MM/DD/YYYY dropdown).
     await this.setZohoDate(page, when).catch(() => {});
@@ -187,19 +203,30 @@ export class ZohoProvider extends BaseProvider {
     const mm = String(when.getMonth() + 1).padStart(2, "0");
     const dd = String(when.getDate()).padStart(2, "0");
     const target = `${mm}/${dd}/${when.getFullYear()}`;
-    // The date dropdown shows the current selection; if it already matches
-    // today and that's our target, nothing to do.
-    const dateField = page
-      .getByText(/^\d{2}\/\d{2}\/\d{4}$/)
-      .filter({ hasText: target })
-      .first();
-    if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) return;
-    // Otherwise open the calendar and pick the day number in the current month.
-    await page.getByText(/^\d{2}\/\d{2}\/\d{4}$/).first().click().catch(() => {});
-    const dayCell = page
-      .getByRole("gridcell", { name: String(when.getDate()), exact: true })
-      .first();
-    await dayCell.click({ timeout: 3000 }).catch(() => {});
+    const selectedDate = page.getByText(/^\d{2}\/\d{2}\/\d{4}$/).first();
+    if ((await selectedDate.textContent({ timeout: 1000 }).catch(() => ""))?.trim() === target) {
+      return;
+    }
+
+    await selectedDate.click();
+
+    const calendar = page
+      .locator('[role="dialog"], .zcal, .datePicker, .calendar')
+      .filter({ hasText: String(when.getFullYear()) })
+      .last();
+    const targetCell = calendar
+      .getByText(new RegExp(`^${when.getDate()}$`))
+      .or(page.getByRole("gridcell", { name: String(when.getDate()), exact: true }))
+      .last();
+    await targetCell.click({ timeout: 5000 });
+
+    await page.waitForFunction(
+      (expected) =>
+        Array.from(document.querySelectorAll("div,span,button"))
+          .some((el) => (el.textContent || "").trim() === expected),
+      target,
+      { timeout: 5000 }
+    );
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {
