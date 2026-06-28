@@ -20,6 +20,16 @@ export class OutlookProvider extends BaseProvider {
     return "outlook.";
   }
 
+  private async waitForBlockingDialogToClear(page: Page): Promise<void> {
+    const backdrop = page.locator('div[aria-hidden="true"][class*="DialogSurface__backdrop"]').first();
+    if (!(await backdrop.isVisible({ timeout: 500 }).catch(() => false))) return;
+
+    await backdrop.waitFor({ state: "hidden", timeout: 15_000 }).catch(async () => {
+      await page.keyboard.press("Escape").catch(() => {});
+      await backdrop.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+    });
+  }
+
   protected async openMailbox(page: Page): Promise<void> {
     await page.goto(this.mailboxUrl, { waitUntil: "domcontentloaded" });
     // Wait for any of the compose-button variants to confirm the mailbox loaded.
@@ -63,7 +73,9 @@ export class OutlookProvider extends BaseProvider {
   }
 
   protected async uiComposeEmail(page: Page, input: ComposeEmailInput): Promise<void> {
+    await this.waitForBlockingDialogToClear(page);
     await this.clickCompose(page);
+    await this.waitForBlockingDialogToClear(page);
 
     // To is a contenteditable div with the exact aria-label "To" (exact match
     // avoids matching the "To Do" app icon in the left rail).
@@ -184,6 +196,8 @@ export class OutlookProvider extends BaseProvider {
 
     const confirm = dialog.getByRole("button", { name: "Send", exact: true }).first();
     await confirm.click();
+    await dialog.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
+    await this.waitForBlockingDialogToClear(page);
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {
