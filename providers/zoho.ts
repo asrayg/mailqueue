@@ -28,15 +28,30 @@ export class ZohoProvider extends BaseProvider {
     return page.getByRole("button", { name: /new mail|compose/i }).first();
   }
 
+  private async firstVisible(locator: ReturnType<Page["locator"]>, timeout = 30_000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const count = await locator.count().catch(() => 0);
+      for (let i = count - 1; i >= 0; i -= 1) {
+        const candidate = locator.nth(i);
+        if (await candidate.isVisible().catch(() => false)) {
+          return candidate;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error("Could not find a visible Zoho compose field");
+  }
+
   protected async uiComposeEmail(page: Page, input: ComposeEmailInput): Promise<void> {
     await this.composeButton(page).click();
 
     // To is an input with role=combobox and aria-label "To Recipients".
-    const to = page
-      .getByRole("combobox", { name: /to recipients/i })
-      .or(page.getByRole("combobox", { name: "To Recipients" }))
-      .first();
-    await to.waitFor({ timeout: 30_000 });
+    const to = await this.firstVisible(
+      page
+        .getByRole("combobox", { name: /to recipients/i })
+        .or(page.getByRole("combobox", { name: "To Recipients" })),
+    );
     await to.click();
     await to.fill(input.to);
     await page.waitForTimeout(400);
@@ -75,16 +90,17 @@ export class ZohoProvider extends BaseProvider {
 
     // Subject is an input identified only by its placeholder. Use fill() without
     // a preceding click so a lingering CC suggestion popup can't intercept it.
-    const subject = page.getByPlaceholder("Subject", { exact: true }).first();
+    const subject = await this.firstVisible(page.getByPlaceholder("Subject", { exact: true }));
     await subject.fill(input.subject);
 
     // The body editor lives inside an iframe ("Text editor area", class ze_area);
     // its document body is contenteditable and pre-filled with the signature.
     // Focus (not click) so a lingering recipient-suggestion / scroll overlay
     // can't intercept the pointer; then select all + type to replace.
-    const editorFrame = page.frameLocator(
-      'iframe[title="Text editor area"], iframe.ze_area'
-    );
+    const editorFrame = page
+      .locator('iframe[title="Text editor area"], iframe.ze_area')
+      .last()
+      .contentFrame();
     const body = editorFrame.locator("body").first();
     await body.waitFor({ timeout: 30_000 });
     await body.focus();
@@ -96,13 +112,29 @@ export class ZohoProvider extends BaseProvider {
     // "Attachment" opens a modal (Desktop / My Attachments / Zoho docs / cloud).
     // On the default "Desktop" tab, "Upload files" triggers the file chooser;
     // an "Attach" button then confirms and closes the modal.
-    await page.getByRole("button", { name: "Attachment", exact: true }).first().click();
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await page.getByRole("button", { name: "Attachment", exact: true }).first().click();
+        const upload = page.getByRole("button", { name: /upload files/i }).first();
+        await upload.waitFor({ timeout: 15_000 });
 
-    const [fileChooser] = await Promise.all([
-      page.waitForEvent("filechooser", { timeout: 20_000 }),
-      page.getByRole("button", { name: /upload files/i }).first().click(),
-    ]);
-    await fileChooser.setFiles(filePaths);
+        const [fileChooser] = await Promise.all([
+          page.waitForEvent("filechooser", { timeout: 30_000 }),
+          upload.click({ force: attempt > 1 }),
+        ]);
+        await fileChooser.setFiles(filePaths);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err;
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(1500);
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
 
     // Let the upload begin, then confirm with "Attach" if the modal awaits it.
     await page.waitForTimeout(1500);
@@ -196,6 +228,8 @@ export class ZohoProvider extends BaseProvider {
       throw new Error("Zoho rejected the scheduled time (below its minimum lead time)");
     }
     await confirm.click();
+    await confirm.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
+    await customOption.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
   }
 
   /** Set the Zoho "Select Date" field when the target isn't today's default. */

@@ -37,3 +37,6 @@ npm-debug.log*
 *.tsbuildinfo
 
 /campaigns
+/scripts
+/data
+*.csv
