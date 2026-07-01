@@ -43,8 +43,33 @@ export class ZohoProvider extends BaseProvider {
     throw new Error("Could not find a visible Zoho compose field");
   }
 
+  private async firstVisibleNamed(locator: ReturnType<Page["locator"]>, name: string, timeout = 30_000) {
+    try {
+      return await this.firstVisible(locator, timeout);
+    } catch {
+      throw new Error(`Could not find visible Zoho ${name}`);
+    }
+  }
+
+  private async dismissBlockingPortal(page: Page): Promise<void> {
+    const portal = page.locator("#zmCompPortalWrapper").first();
+    if (!(await portal.isVisible({ timeout: 500 }).catch(() => false))) return;
+
+    const close = portal
+      .getByRole("button", { name: /close|cancel|ok|dismiss|discard/i })
+      .last();
+    if (await close.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await close.click({ force: true }).catch(() => {});
+    } else {
+      await page.keyboard.press("Escape").catch(() => {});
+    }
+    await portal.waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+  }
+
   protected async uiComposeEmail(page: Page, input: ComposeEmailInput): Promise<void> {
+    await this.dismissBlockingPortal(page);
     await this.composeButton(page).click();
+    await this.dismissBlockingPortal(page);
 
     // To is an input with role=combobox and aria-label "To Recipients".
     const to = await this.firstVisible(
@@ -52,7 +77,7 @@ export class ZohoProvider extends BaseProvider {
         .getByRole("combobox", { name: /to recipients/i })
         .or(page.getByRole("combobox", { name: "To Recipients" })),
     );
-    await to.click();
+    await to.focus();
     await to.fill(input.to);
     await page.waitForTimeout(400);
     await page.keyboard.press("Enter");
@@ -65,7 +90,7 @@ export class ZohoProvider extends BaseProvider {
     const ccList = splitRecipients(input.cc);
     if (ccList.length) {
       const cc = page.getByRole("combobox", { name: /cc recipients/i }).first();
-      await cc.click();
+      await cc.focus();
       for (const addr of ccList) {
         await cc.fill(addr);
         await page.keyboard.press("Enter");
@@ -80,7 +105,7 @@ export class ZohoProvider extends BaseProvider {
     if (bccList.length) {
       await page.getByRole("button", { name: /add bcc recipients/i }).first().click();
       const bcc = page.getByRole("combobox", { name: /bcc recipients/i }).first();
-      await bcc.click();
+      await bcc.focus();
       for (const addr of bccList) {
         await bcc.fill(addr);
         await page.keyboard.press("Enter");
@@ -160,7 +185,11 @@ export class ZohoProvider extends BaseProvider {
 
     // Zoho can render the attachment chips before its compose actions are ready
     // again. Give the toolbar a short settling window before Send Later/Send.
-    await page.waitForTimeout(20_000);
+    await page.waitForTimeout(5000);
+    await this.firstVisible(
+      page.locator('[data-testid="com_send_later"]').or(page.getByRole("button", { name: /send later/i })),
+      60_000,
+    ).catch(() => {});
   }
 
   protected async uiSend(page: Page, input: SendTimingInput): Promise<void> {
@@ -194,24 +223,39 @@ export class ZohoProvider extends BaseProvider {
    */
   private async uiScheduleSend(page: Page, when: Date): Promise<void> {
     const customOption = page.getByText(/custom date and time/i).first();
-    const sendLater = page
+    const sendLaterLocator = page
       .locator('[data-testid="com_send_later"]')
-      .or(page.getByRole("button", { name: /send later/i }))
-      .first();
+      .or(page.getByRole("button", { name: /send later/i }));
 
-    await sendLater.waitFor({ timeout: 20_000 });
-    await sendLater.click();
-    if (!(await customOption.isVisible({ timeout: 5000 }).catch(() => false))) {
-      await page.waitForTimeout(3000);
+    let opened = false;
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      await this.dismissBlockingPortal(page);
+      const sendButton = page.getByRole("button", { name: "Send", exact: true }).last();
+      if (await sendButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await sendButton.scrollIntoViewIfNeeded().catch(() => {});
+        await sendButton.focus().catch(() => {});
+      }
+
+      const sendLater = await this.firstVisibleNamed(sendLaterLocator, "Send Later button", 45_000);
+      await sendLater.scrollIntoViewIfNeeded().catch(() => {});
       await sendLater.click({ force: true });
+      if (await customOption.isVisible({ timeout: 6000 }).catch(() => false)) {
+        opened = true;
+        break;
+      }
+
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(1500);
     }
-    await customOption.waitFor({ timeout: 15_000 });
+    if (!opened) {
+      throw new Error("Zoho Send Later menu opened without showing Custom Date and Time");
+    }
 
     // "Schedule" tab is the default; choose Custom Date and Time.
     await customOption.click();
 
     // Set the date if it differs from today's default (MM/DD/YYYY dropdown).
-    await this.setZohoDate(page, when).catch(() => {});
+    await this.setZohoDate(page, when);
 
     // 24-hour Hour/Minute spinbuttons.
     const hour = page.getByRole("spinbutton", { name: "Hour" }).first();
@@ -228,7 +272,7 @@ export class ZohoProvider extends BaseProvider {
       throw new Error("Zoho rejected the scheduled time (below its minimum lead time)");
     }
     await confirm.click();
-    await confirm.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
+    await confirm.waitFor({ state: "hidden", timeout: 45_000 });
     await customOption.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
   }
 
@@ -237,7 +281,10 @@ export class ZohoProvider extends BaseProvider {
     const mm = String(when.getMonth() + 1).padStart(2, "0");
     const dd = String(when.getDate()).padStart(2, "0");
     const target = `${mm}/${dd}/${when.getFullYear()}`;
-    const selectedDate = page.getByText(/^\d{2}\/\d{2}\/\d{4}$/).first();
+    const selectedDate = await this.firstVisibleNamed(
+      page.getByText(/^\d{2}\/\d{2}\/\d{4}$/),
+      "schedule date field",
+    );
     if ((await selectedDate.textContent({ timeout: 1000 }).catch(() => ""))?.trim() === target) {
       return;
     }
@@ -254,16 +301,21 @@ export class ZohoProvider extends BaseProvider {
       .last();
     await targetCell.click({ timeout: 5000 });
 
-    await page.waitForFunction(
-      (expected) =>
-        Array.from(document.querySelectorAll("div,span,button"))
-          .some((el) => (el.textContent || "").trim() === expected),
-      target,
-      { timeout: 5000 }
-    );
+    await page
+      .waitForFunction(
+        ([expected, el]) => el instanceof HTMLElement && el.textContent?.trim() === expected,
+        [target, await selectedDate.elementHandle()],
+        { timeout: 5000 },
+      )
+      .catch(async () => {
+        const actual = (await selectedDate.textContent({ timeout: 1000 }).catch(() => ""))?.trim();
+        throw new Error(`Zoho schedule date did not update to ${target}; actual date is ${actual || "unknown"}`);
+      });
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {
+    if (this.isScheduling) return true;
+
     // After send Zoho closes the compose tab (Send button detaches) and shows a
     // confirmation toast. Either is sufficient confirmation.
     const sendGone = page
