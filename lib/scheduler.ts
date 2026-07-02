@@ -170,6 +170,15 @@ export async function sendOneEmail(
     await provider.close();
   }
 
+  // Test sends (an explicit `to` override) must be side-effect-free: they never
+  // write a SendLog, mutate the recipient/campaign counters, record contact
+  // history, or pause the campaign. Surface any failure to the caller so the CLI
+  // still reports it, otherwise just return.
+  if (testOverrideTo) {
+    if (!result.success) throw new Error(result.error ?? "test send failed");
+    return;
+  }
+
   // Log the attempt.
   await db.sendLog.create({
     data: {
@@ -197,18 +206,16 @@ export async function sendOneEmail(
       where: { id: campaign.id },
       data: { consecutiveFailures: 0 },
     });
-    // Record global contact history (skip for test sends).
-    if (!testOverrideTo) {
-      await db.globalContactHistory.create({
-        data: {
-          email: recipient.email,
-          lastContactedAt: now,
-          campaignId: campaign.id,
-          subject,
-          provider: campaign.provider,
-        },
-      });
-    }
+    // Record global contact history (test sends already returned above).
+    await db.globalContactHistory.create({
+      data: {
+        email: recipient.email,
+        lastContactedAt: now,
+        campaignId: campaign.id,
+        subject,
+        provider: campaign.provider,
+      },
+    });
     return;
   }
 
