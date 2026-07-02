@@ -10,6 +10,14 @@ export interface ComposeEmailInput {
   bcc?: string;
   subject: string;
   body: string;
+  /**
+   * Image file paths to embed INLINE in the message body (rendered in the
+   * email, not as download chips). Currently implemented for Zoho via its
+   * native "Insert Image → Upload from Disk" flow, which uploads each image so
+   * it renders in all recipient clients. Keep each image small (Zoho caps
+   * inline uploads at 3MB). Other providers ignore this for now.
+   */
+  inlineImages?: string[];
 }
 
 /** Split a comma/semicolon-separated recipient string into trimmed addresses. */

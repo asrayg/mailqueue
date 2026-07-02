@@ -131,6 +131,104 @@ export class ZohoProvider extends BaseProvider {
     await body.focus();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.type(input.body);
+
+    if (input.inlineImages?.length) {
+      await this.uiInsertInlineImages(page, body, input.inlineImages);
+    }
+  }
+
+  /**
+   * Embed images INLINE in the body using Zoho's native "Insert Image → Upload
+   * from Disk" dialog. Each image is uploaded by Zoho (not a data: URI), so it
+   * renders in every recipient client. Zoho caps inline uploads at 3MB — keep
+   * images optimized. Images are stacked at the current cursor (end of body),
+   * each on its own line.
+   */
+  private async uiInsertInlineImages(
+    page: Page,
+    editorBody: ReturnType<Page["locator"]>,
+    imagePaths: string[]
+  ): Promise<void> {
+    // Wait for the rich-text toolbar to be ready. "More Options" (the overflow
+    // chevron) is present on every compose, so use it as the readiness signal.
+    await this.firstVisible(page.getByRole("button", { name: "More Options", exact: true }), 30_000);
+
+    // Cursor is at the end of the body after typing. Add a blank line so the
+    // images sit below the signature rather than butting up against it.
+    await editorBody.focus();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+
+    for (const imagePath of imagePaths) {
+      let inserted = false;
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= 4 && !inserted; attempt += 1) {
+        try {
+          await this.openZohoInsertImage(page);
+
+          // Confirm the RIGHT dialog opened by waiting for its file input to
+          // appear; if the click didn't register, this times out and we retry
+          // (rather than pressing Escape, which pops a "save draft?" modal whose
+          // backdrop then hides the toolbar for every subsequent attempt).
+          const dialog = page.locator('[class*="zmdialog-outer-wrapper"]').last();
+          const fileInput = dialog.locator('input[type="file"]').first();
+          await fileInput.waitFor({ state: "attached", timeout: 8_000 });
+
+          // "Upload from Disk" is the default tab; set the file on its hidden
+          // input directly (avoids a native file-chooser race).
+          await fileInput.setInputFiles(imagePath);
+
+          const insertBtn = dialog.getByRole("button", { name: "Insert", exact: true }).first();
+          await insertBtn.waitFor({ timeout: 15_000 });
+          // Let the upload + preview settle so Insert commits the image.
+          await page.waitForTimeout(2_000);
+          await insertBtn.click();
+
+          await dialog.waitFor({ state: "hidden", timeout: 20_000 });
+          inserted = true;
+        } catch (err) {
+          lastError = err;
+          // Recover WITHOUT Escape: close a half-open Insert Image dialog via
+          // its own Cancel/close button so the compose surface stays intact.
+          const openDialog = page.locator('[class*="zmdialog-outer-wrapper"]').last();
+          const cancel = openDialog.getByRole("button", { name: /^cancel$/i }).first();
+          if (await cancel.isVisible({ timeout: 1_500 }).catch(() => false)) {
+            await cancel.click().catch(() => {});
+          }
+          await page.waitForTimeout(1_500);
+        }
+      }
+      if (!inserted) throw lastError ?? new Error("Zoho inline image insert failed");
+
+      // Return focus to the body and drop to a new line for the next image.
+      await editorBody.focus();
+      await page.keyboard.press("ControlOrMeta+End").catch(() => {});
+      await page.keyboard.press("Enter");
+    }
+  }
+
+  /**
+   * Click the toolbar's "Insert Image" control. On the first compose of a
+   * session the button sits directly in the toolbar; on every subsequent
+   * compose Zoho renders a compact toolbar that tucks the insert-group buttons
+   * (Insert Image/Link/Template/…) behind the "More Options" overflow chevron.
+   * So: click it directly if visible, otherwise expand "More Options" first.
+   */
+  private async openZohoInsertImage(page: Page): Promise<void> {
+    const insertImage = page.getByRole("button", { name: "Insert Image", exact: true });
+    try {
+      const direct = await this.firstVisible(insertImage, 2_500);
+      await direct.click();
+      return;
+    } catch {
+      // Not directly visible — reveal the overflow row, then click it.
+    }
+    const more = await this.firstVisible(page.getByRole("button", { name: "More Options", exact: true }), 15_000);
+    await more.click();
+    await page.waitForTimeout(800);
+    const revealed = await this.firstVisible(insertImage, 15_000);
+    await revealed.click();
   }
 
   protected async uiAttachFiles(page: Page, filePaths: string[]): Promise<void> {
@@ -290,15 +388,45 @@ export class ZohoProvider extends BaseProvider {
     }
 
     await selectedDate.click();
+    await page.waitForTimeout(500);
 
     const calendar = page
       .locator('[role="dialog"], .zcal, .datePicker, .calendar')
       .filter({ hasText: String(when.getFullYear()) })
       .last();
-    const targetCell = calendar
-      .getByText(new RegExp(`^${when.getDate()}$`))
-      .or(page.getByRole("gridcell", { name: String(when.getDate()), exact: true }))
-      .last();
+
+    const currentMatch = ((await selectedDate.textContent({ timeout: 1000 }).catch(() => "")) ?? "")
+      .trim()
+      .match(/^(\d{2})\/\d{2}\/(\d{4})$/);
+    const currentMonthIndex = currentMatch
+      ? (Number(currentMatch[2]) * 12 + Number(currentMatch[1]) - 1)
+      : when.getFullYear() * 12 + when.getMonth();
+    const targetMonthIndex = when.getFullYear() * 12 + when.getMonth();
+    const monthsForward = Math.max(0, Math.min(24, targetMonthIndex - currentMonthIndex));
+
+    for (let i = 0; i < monthsForward; i += 1) {
+      const next = calendar
+        .getByRole("button", { name: /next|forward|right/i })
+        .or(calendar.locator('[aria-label*="Next"], [title*="Next"], .next, .zmdp__next, button').last())
+        .last();
+      await next.click({ timeout: 5000 });
+      await page.waitForTimeout(300);
+    }
+
+    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(when);
+    const targetAria = `${when.getDate()} ${weekday} ${when.getFullYear()}`;
+    if (!(await page.locator(`button:not([disabled])[aria-label="${targetAria}"]`).isVisible({ timeout: 1000 }).catch(() => false))) {
+      await selectedDate.click();
+      await page.waitForTimeout(500);
+    }
+    const targetCell = page
+      .locator(`button:not([disabled])[aria-label="${targetAria}"]`)
+      .or(
+        calendar
+          .locator("button:not([disabled])")
+          .filter({ hasText: new RegExp(`^${when.getDate()}$`) }),
+      )
+      .first();
     await targetCell.click({ timeout: 5000 });
 
     await page
