@@ -21,7 +21,11 @@ export class OutlookProvider extends BaseProvider {
   }
 
   private async waitForBlockingDialogToClear(page: Page): Promise<void> {
-    const backdrop = page.locator('div[aria-hidden="true"][class*="DialogSurface__backdrop"]').first();
+    const backdrop = page
+      .locator(
+        'div[aria-hidden="true"][class*="DialogSurface__backdrop"], div[aria-hidden="true"][class*="fui-DialogSurface__backdrop"]'
+      )
+      .first();
     if (!(await backdrop.isVisible({ timeout: 500 }).catch(() => false))) return;
 
     await backdrop.waitFor({ state: "hidden", timeout: 15_000 }).catch(async () => {
@@ -86,6 +90,7 @@ export class OutlookProvider extends BaseProvider {
     await page.keyboard.press("Enter");
     // Close the people-picker suggestion popup so it can't overlay the Cc field.
     await page.keyboard.press("Escape");
+    await this.waitForBlockingDialogToClear(page);
 
     // CC — an inline contenteditable div labeled "Cc".
     const ccList = splitRecipients(input.cc);
@@ -116,12 +121,32 @@ export class OutlookProvider extends BaseProvider {
       .getByRole("textbox", { name: "Subject", exact: true })
       .or(page.getByLabel("Subject", { exact: true }))
       .first();
-    await subject.click();
-    await subject.fill(input.subject);
+    await this.waitForBlockingDialogToClear(page);
+    await subject.click({ timeout: 10_000 }).catch(async () => {
+      await subject.evaluate((el) => (el as HTMLElement).focus());
+    });
+    await subject.fill(input.subject).catch(async () => {
+      await subject.evaluate((el, value) => {
+        const target = el as HTMLInputElement;
+        target.focus();
+        target.value = value;
+        target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+      }, input.subject);
+    });
 
     const body = page.getByRole("textbox", { name: "Message body" }).first();
-    await body.click();
-    await body.fill(input.body);
+    await this.waitForBlockingDialogToClear(page);
+    await body.click({ timeout: 10_000 }).catch(async () => {
+      await body.evaluate((el) => (el as HTMLElement).focus());
+    });
+    await body.fill(input.body).catch(async () => {
+      await body.evaluate((el, value) => {
+        const target = el as HTMLElement;
+        target.focus();
+        target.textContent = value;
+        target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+      }, input.body);
+    });
   }
 
   protected async uiAttachFiles(page: Page, filePaths: string[]): Promise<void> {
