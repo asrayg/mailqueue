@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { BaseProvider } from "./base";
 import type { ComposeEmailInput, Provider, SendTimingInput } from "./types";
 import { splitRecipients } from "./types";
@@ -187,21 +187,65 @@ export class OutlookProvider extends BaseProvider {
    * with editable date ("M/D/YYYY") and time ("h:mm AM/PM") comboboxes and a
    * Send button. The mail then sends at that time with the app closed.
    */
+  private async openCustomScheduleDialog(page: Page): Promise<Locator> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await this.waitForBlockingDialogToClear(page);
+
+        const moreSendOptions = page
+          .getByRole("button", { name: /more send options/i })
+          .first();
+        await moreSendOptions.waitFor({ state: "visible", timeout: 30_000 });
+        await moreSendOptions.click({ timeout: 30_000 });
+
+        const scheduleSend = page
+          .getByRole("menuitem", { name: /schedule send|send later/i })
+          .first();
+        await scheduleSend.waitFor({ state: "visible", timeout: 30_000 });
+        await scheduleSend.click({ timeout: 30_000 });
+
+        const custom = page
+          .getByRole("button", { name: /custom time/i })
+          .or(page.getByRole("menuitem", { name: /custom time/i }))
+          .or(page.getByText(/custom time/i))
+          .first();
+        await custom.waitFor({ state: "visible", timeout: 30_000 });
+        await custom.click({ timeout: 30_000 });
+
+        const dialog = page
+          .getByRole("dialog")
+          .filter({ hasText: /custom date and time/i })
+          .first();
+        await dialog.waitFor({ state: "visible", timeout: 30_000 });
+        return dialog;
+      } catch (error) {
+        lastError = error;
+        // A menu or partially opened dialog can survive a failed click. Escape
+        // back to the compose surface before reopening the scheduling controls.
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.keyboard.press("Escape").catch(() => {});
+        await this.waitForBlockingDialogToClear(page);
+        await page.waitForTimeout(attempt * 1_500);
+      }
+    }
+
+    const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Could not open Outlook custom scheduling dialog after 3 attempts: ${detail}`);
+  }
+
   private async uiScheduleSend(page: Page, when: Date): Promise<void> {
-    await page.getByRole("button", { name: /more send options/i }).first().click();
-    await page.getByRole("menuitem", { name: /schedule send|send later/i }).first().click();
-
-    const custom = page.getByRole("button", { name: /custom time/i }).first();
-    await custom.waitFor({ timeout: 15_000 });
-    await custom.click();
-
-    const dialog = page.getByRole("dialog").filter({ hasText: /custom date and time/i });
-    await dialog.waitFor({ timeout: 10_000 });
+    const dialog = await this.openCustomScheduleDialog(page);
 
     // The date and time fields are unlabeled comboboxes — identify them by the
     // format of their current value.
     const combos = dialog.getByRole("combobox");
+    await combos.nth(1).waitFor({ state: "visible", timeout: 30_000 });
     const count = await combos.count();
+    if (count < 2) {
+      throw new Error(`Outlook custom scheduling dialog exposed ${count} comboboxes; expected at least 2`);
+    }
     let dateBox = combos.first();
     let timeBox = combos.last();
     for (let i = 0; i < count; i++) {
@@ -211,17 +255,18 @@ export class OutlookProvider extends BaseProvider {
     }
 
     const dateStr = `${when.getMonth() + 1}/${when.getDate()}/${when.getFullYear()}`;
-    await dateBox.click();
-    await dateBox.fill(dateStr);
+    await dateBox.click({ timeout: 30_000 });
+    await dateBox.fill(dateStr, { timeout: 30_000 });
     await page.keyboard.press("Enter");
 
-    await timeBox.click();
-    await timeBox.fill(format12hTime(when));
+    await timeBox.click({ timeout: 30_000 });
+    await timeBox.fill(format12hTime(when), { timeout: 30_000 });
     await page.keyboard.press("Enter");
 
     const confirm = dialog.getByRole("button", { name: "Send", exact: true }).first();
-    await confirm.click();
-    await dialog.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
+    await confirm.waitFor({ state: "visible", timeout: 30_000 });
+    await confirm.click({ timeout: 30_000 });
+    await dialog.waitFor({ state: "hidden", timeout: 60_000 }).catch(() => {});
     await this.waitForBlockingDialogToClear(page);
   }
 
