@@ -236,36 +236,100 @@ export class OutlookProvider extends BaseProvider {
   }
 
   private async uiScheduleSend(page: Page, when: Date): Promise<void> {
-    const dialog = await this.openCustomScheduleDialog(page);
-
-    // The date and time fields are unlabeled comboboxes — identify them by the
-    // format of their current value.
-    const combos = dialog.getByRole("combobox");
-    await combos.nth(1).waitFor({ state: "visible", timeout: 30_000 });
-    const count = await combos.count();
-    if (count < 2) {
-      throw new Error(`Outlook custom scheduling dialog exposed ${count} comboboxes; expected at least 2`);
-    }
-    let dateBox = combos.first();
-    let timeBox = combos.last();
-    for (let i = 0; i < count; i++) {
-      const v = (await combos.nth(i).inputValue().catch(() => "")) || "";
-      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(v)) dateBox = combos.nth(i);
-      else if (/\d{1,2}:\d{2}\s*(AM|PM)/i.test(v)) timeBox = combos.nth(i);
-    }
-
     const dateStr = `${when.getMonth() + 1}/${when.getDate()}/${when.getFullYear()}`;
-    await dateBox.click({ timeout: 30_000 });
-    await dateBox.fill(dateStr, { timeout: 30_000 });
-    await page.keyboard.press("Enter");
+    let dialog = await this.openCustomScheduleDialog(page);
+    let fieldsFilled = false;
 
-    await timeBox.click({ timeout: 30_000 });
-    await timeBox.fill(format12hTime(when), { timeout: 30_000 });
-    await page.keyboard.press("Enter");
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        // The date and time fields are unlabeled comboboxes — identify them by
+        // the format of their current value. Reacquire them on every attempt
+        // because Outlook frequently replaces these nodes while rendering.
+        const combos = dialog.getByRole("combobox");
+        await combos.nth(1).waitFor({ state: "visible", timeout: 30_000 });
+        const count = await combos.count();
+        if (count < 2) {
+          throw new Error(
+            `Outlook custom scheduling dialog exposed ${count} comboboxes; expected at least 2`,
+          );
+        }
+        let dateBox = combos.first();
+        let timeBox = combos.last();
+        for (let i = 0; i < count; i++) {
+          const v = (await combos.nth(i).inputValue().catch(() => "")) || "";
+          if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(v)) dateBox = combos.nth(i);
+          else if (/\d{1,2}:\d{2}\s*(AM|PM)/i.test(v)) timeBox = combos.nth(i);
+        }
 
-    const confirm = dialog.getByRole("button", { name: "Send", exact: true }).first();
-    await confirm.waitFor({ state: "visible", timeout: 30_000 });
-    await confirm.click({ timeout: 30_000 });
+        await dateBox.click({ timeout: 30_000 });
+        await dateBox.fill(dateStr, { timeout: 30_000 });
+        await page.keyboard.press("Enter");
+
+        await timeBox.click({ timeout: 30_000 });
+        await timeBox.fill(format12hTime(when), { timeout: 30_000 });
+        await page.keyboard.press("Enter");
+        fieldsFilled = true;
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(attempt * 1_500);
+        dialog = await this.openCustomScheduleDialog(page);
+      }
+    }
+
+    if (!fieldsFilled) throw new Error("Could not fill Outlook custom scheduling fields");
+
+    // Some Outlook builds commit the schedule when Enter is pressed in the
+    // time field. If that happened, let the normal compose-closed verification
+    // determine success instead of trying to click a now-missing button.
+    if (!(await dialog.isVisible({ timeout: 2_000 }).catch(() => false))) {
+      await this.waitForBlockingDialogToClear(page);
+      return;
+    }
+
+    // The confirmation label varies between Outlook deployments ("Send",
+    // "Schedule", or "Schedule send"), and some builds expose only a submit
+    // button without a useful accessible name. Keep every fallback scoped to
+    // the custom scheduling dialog so the compose Send button cannot match.
+    const confirm = dialog
+      .getByRole("button", { name: /^(send|schedule|schedule send)$/i })
+      .or(dialog.locator('button[type="submit"]'))
+      .or(dialog.locator("button").filter({ hasText: /send|schedule/i }))
+      .first();
+
+    try {
+      const outcome = await Promise.race([
+        confirm
+          .waitFor({ state: "visible", timeout: 45_000 })
+          .then(() => "confirm" as const),
+        dialog
+          .waitFor({ state: "hidden", timeout: 45_000 })
+          .then(() => "closed" as const),
+      ]);
+      if (outcome === "closed") {
+        await this.waitForBlockingDialogToClear(page);
+        return;
+      }
+    } catch (error) {
+      // Recheck after the wait: Outlook can detach the whole dialog between
+      // Playwright's last poll and timeout reporting.
+      if (!(await dialog.isVisible({ timeout: 500 }).catch(() => false))) {
+        await this.waitForBlockingDialogToClear(page);
+        return;
+      }
+      const labels = await dialog
+        .locator("button")
+        .allTextContents()
+        .catch(() => [] as string[]);
+      throw new Error(
+        `Could not find Outlook schedule confirmation button; dialog buttons were: ${JSON.stringify(labels)}`,
+        { cause: error },
+      );
+    }
+
+    await confirm.click({ timeout: 45_000 });
     await dialog.waitFor({ state: "hidden", timeout: 60_000 }).catch(() => {});
     await this.waitForBlockingDialogToClear(page);
   }
