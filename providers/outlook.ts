@@ -10,6 +10,8 @@ import { format12hTime } from "../lib/time";
  */
 export class OutlookProvider extends BaseProvider {
   readonly provider: Provider = "outlook";
+  private currentComposeBody?: Locator;
+  private currentComposeSendButton?: Locator;
   // Default to the work/school host (redirects to outlook.cloud.microsoft).
   // Personal accounts can override via OUTLOOK_MAILBOX_URL=https://outlook.live.com/mail/0/
   protected readonly mailboxUrl =
@@ -20,18 +22,37 @@ export class OutlookProvider extends BaseProvider {
     return "outlook.";
   }
 
-  private async waitForBlockingDialogToClear(page: Page): Promise<void> {
-    const backdrop = page
-      .locator(
-        'div[aria-hidden="true"][class*="DialogSurface__backdrop"], div[aria-hidden="true"][class*="fui-DialogSurface__backdrop"]'
-      )
-      .first();
-    if (!(await backdrop.isVisible({ timeout: 500 }).catch(() => false))) return;
+  private async waitForBlockingDialogToClear(page: Page, strict = true): Promise<void> {
+    const selector =
+      'div[aria-hidden="true"][class*="DialogSurface__backdrop"], div[aria-hidden="true"][class*="fui-DialogSurface__backdrop"]';
 
-    await backdrop.waitFor({ state: "hidden", timeout: 15_000 }).catch(async () => {
-      await page.keyboard.press("Escape").catch(() => {});
-      await backdrop.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
-    });
+    const hasVisibleBackdrop = async (): Promise<boolean> => {
+      const backdrops = page.locator(selector);
+      for (let i = 0; i < (await backdrops.count()); i += 1) {
+        if (await backdrops.nth(i).isVisible({ timeout: 250 }).catch(() => false)) return true;
+      }
+      return false;
+    };
+
+    if (!(await hasVisibleBackdrop())) return;
+    // Give Outlook a chance to remove transient overlays naturally. Never
+    // press Escape or click a backdrop: either action can open or confirm the
+    // destructive "Discard message" workflow for the active draft.
+    await page.waitForTimeout(3_000);
+    if (!(await hasVisibleBackdrop()) || !strict) return;
+
+    const discardPrompt = page
+      .getByRole("dialog")
+      .filter({ hasText: /discard message|discard this draft/i })
+      .first();
+    if (await discardPrompt.isVisible({ timeout: 500 }).catch(() => false)) {
+      const cancel = discardPrompt.getByRole("button", { name: /^cancel$/i }).first();
+      await cancel.waitFor({ state: "visible", timeout: 10_000 });
+      await cancel.click({ timeout: 10_000 });
+      await discardPrompt.waitFor({ state: "hidden", timeout: 10_000 });
+      return;
+    }
+    throw new Error("Outlook left a blocking dialog backdrop; campaign paused without interacting with it");
   }
 
   protected async openMailbox(page: Page): Promise<void> {
@@ -83,7 +104,7 @@ export class OutlookProvider extends BaseProvider {
 
     // To is a contenteditable div with the exact aria-label "To" (exact match
     // avoids matching the "To Do" app icon in the left rail).
-    const to = page.getByLabel("To", { exact: true }).first();
+    const to = page.getByLabel("To", { exact: true }).last();
     await to.waitFor({ timeout: 30_000 });
     await to.click();
     await to.fill(input.to);
@@ -95,7 +116,7 @@ export class OutlookProvider extends BaseProvider {
     // CC — an inline contenteditable div labeled "Cc".
     const ccList = splitRecipients(input.cc);
     if (ccList.length) {
-      const cc = page.getByLabel("Cc", { exact: true }).first();
+      const cc = page.getByLabel("Cc", { exact: true }).last();
       await cc.click();
       for (const addr of ccList) {
         await cc.fill(addr);
@@ -107,8 +128,8 @@ export class OutlookProvider extends BaseProvider {
     // BCC — hidden until the "Bcc" toggle is clicked; then an inline "Bcc" div.
     const bccList = splitRecipients(input.bcc);
     if (bccList.length) {
-      await page.getByRole("button", { name: "Bcc", exact: true }).first().click();
-      const bcc = page.getByLabel("Bcc", { exact: true }).first();
+      await page.getByRole("button", { name: "Bcc", exact: true }).last().click();
+      const bcc = page.getByLabel("Bcc", { exact: true }).last();
       await bcc.click();
       for (const addr of bccList) {
         await bcc.fill(addr);
@@ -120,7 +141,7 @@ export class OutlookProvider extends BaseProvider {
     const subject = page
       .getByRole("textbox", { name: "Subject", exact: true })
       .or(page.getByLabel("Subject", { exact: true }))
-      .first();
+      .last();
     await this.waitForBlockingDialogToClear(page);
     await subject.click({ timeout: 10_000 }).catch(async () => {
       await subject.evaluate((el) => (el as HTMLElement).focus());
@@ -134,7 +155,7 @@ export class OutlookProvider extends BaseProvider {
       }, input.subject);
     });
 
-    const body = page.getByRole("textbox", { name: "Message body" }).first();
+    const body = page.getByRole("textbox", { name: "Message body" }).last();
     await this.waitForBlockingDialogToClear(page);
     await body.click({ timeout: 10_000 }).catch(async () => {
       await body.evaluate((el) => (el as HTMLElement).focus());
@@ -147,6 +168,10 @@ export class OutlookProvider extends BaseProvider {
         target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
       }, input.body);
     });
+    this.currentComposeBody = body;
+    this.currentComposeSendButton = page
+      .getByRole("button", { name: "Send", exact: true })
+      .last();
   }
 
   protected async uiAttachFiles(page: Page, filePaths: string[]): Promise<void> {
@@ -196,7 +221,7 @@ export class OutlookProvider extends BaseProvider {
 
         const moreSendOptions = page
           .getByRole("button", { name: /more send options/i })
-          .first();
+          .last();
         await moreSendOptions.waitFor({ state: "visible", timeout: 30_000 });
         await moreSendOptions.click({ timeout: 30_000 });
 
@@ -217,7 +242,7 @@ export class OutlookProvider extends BaseProvider {
         const dialog = page
           .getByRole("dialog")
           .filter({ hasText: /custom date and time/i })
-          .first();
+          .last();
         await dialog.waitFor({ state: "visible", timeout: 30_000 });
         return dialog;
       } catch (error) {
@@ -237,110 +262,97 @@ export class OutlookProvider extends BaseProvider {
 
   private async uiScheduleSend(page: Page, when: Date): Promise<void> {
     const dateStr = `${when.getMonth() + 1}/${when.getDate()}/${when.getFullYear()}`;
-    let dialog = await this.openCustomScheduleDialog(page);
+    const timeStr = format12hTime(when);
+    const dialog = await this.openCustomScheduleDialog(page);
     let fieldsFilled = false;
 
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        // The date and time fields are unlabeled comboboxes — identify them by
-        // the format of their current value. Reacquire them on every attempt
-        // because Outlook frequently replaces these nodes while rendering.
-        const combos = dialog.getByRole("combobox");
-        await combos.nth(1).waitFor({ state: "visible", timeout: 30_000 });
-        const count = await combos.count();
-        if (count < 2) {
-          throw new Error(
-            `Outlook custom scheduling dialog exposed ${count} comboboxes; expected at least 2`,
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      fieldsFilled = await page.evaluate(
+        ({ dateValue, timeValue }) => {
+          const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+          const customDialog = dialogs
+            .filter((candidate) => /custom date and time/i.test(candidate.innerText || ""))
+            .at(-1);
+          if (!customDialog) return false;
+          const inputs = Array.from(customDialog.querySelectorAll<HTMLInputElement>("input"));
+          const dateInput = inputs.find(
+            (input) =>
+              /select a date/i.test(input.getAttribute("aria-label") || "") ||
+              /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(input.value),
           );
-        }
-        let dateBox = combos.first();
-        let timeBox = combos.last();
-        for (let i = 0; i < count; i++) {
-          const v = (await combos.nth(i).inputValue().catch(() => "")) || "";
-          if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(v)) dateBox = combos.nth(i);
-          else if (/\d{1,2}:\d{2}\s*(AM|PM)/i.test(v)) timeBox = combos.nth(i);
-        }
+          const timeInput = inputs.find(
+            (input) =>
+              /select a time/i.test(input.getAttribute("aria-label") || "") ||
+              /^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(input.value),
+          );
+          if (!dateInput || !timeInput) return false;
 
-        await dateBox.click({ timeout: 30_000 });
-        await dateBox.fill(dateStr, { timeout: 30_000 });
-        await page.keyboard.press("Enter");
-
-        await timeBox.click({ timeout: 30_000 });
-        await timeBox.fill(format12hTime(when), { timeout: 30_000 });
-        await page.keyboard.press("Enter");
-        fieldsFilled = true;
-        break;
-      } catch (error) {
-        if (attempt === 3) throw error;
-        await page.keyboard.press("Escape").catch(() => {});
-        await page.keyboard.press("Escape").catch(() => {});
-        await page.waitForTimeout(attempt * 1_500);
-        dialog = await this.openCustomScheduleDialog(page);
-      }
+          const valueSetter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )?.set;
+          if (!valueSetter) return false;
+          for (const [input, value] of [
+            [timeInput, timeValue],
+            [dateInput, dateValue],
+          ] as const) {
+            valueSetter.call(input, value);
+            input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          dateInput.blur();
+          timeInput.blur();
+          return dateInput.value === dateValue && timeInput.value === timeValue;
+        },
+        { dateValue: dateStr, timeValue: timeStr },
+      );
+      if (fieldsFilled) break;
+      await page.waitForTimeout(500);
     }
 
     if (!fieldsFilled) throw new Error("Could not fill Outlook custom scheduling fields");
 
-    // Some Outlook builds commit the schedule when Enter is pressed in the
-    // time field. If that happened, let the normal compose-closed verification
-    // determine success instead of trying to click a now-missing button.
-    if (!(await dialog.isVisible({ timeout: 2_000 }).catch(() => false))) {
-      await this.waitForBlockingDialogToClear(page);
-      return;
-    }
-
     // The confirmation label varies between Outlook deployments ("Send",
     // "Schedule", or "Schedule send"), and some builds expose only a submit
-    // button without a useful accessible name. Keep every fallback scoped to
-    // the custom scheduling dialog so the compose Send button cannot match.
-    const confirm = dialog
-      .getByRole("button", { name: /^(send|schedule|schedule send)$/i })
-      .or(dialog.locator('button[type="submit"]'))
-      .or(dialog.locator("button").filter({ hasText: /send|schedule/i }))
-      .first();
-
-    try {
-      const outcome = await Promise.race([
-        confirm
-          .waitFor({ state: "visible", timeout: 45_000 })
-          .then(() => "confirm" as const),
-        dialog
-          .waitFor({ state: "hidden", timeout: 45_000 })
-          .then(() => "closed" as const),
-      ]);
-      if (outcome === "closed") {
-        await this.waitForBlockingDialogToClear(page);
-        return;
-      }
-    } catch (error) {
-      // Recheck after the wait: Outlook can detach the whole dialog between
-      // Playwright's last poll and timeout reporting.
-      if (!(await dialog.isVisible({ timeout: 500 }).catch(() => false))) {
-        await this.waitForBlockingDialogToClear(page);
-        return;
-      }
-      const labels = await dialog
-        .locator("button")
-        .allTextContents()
-        .catch(() => [] as string[]);
-      throw new Error(
-        `Could not find Outlook schedule confirmation button; dialog buttons were: ${JSON.stringify(labels)}`,
-        { cause: error },
-      );
+    // button without a useful accessible name. Require an explicit click and
+    // a confirmed dialog close; never infer scheduling from a disappearing or
+    // rerendered dialog.
+    await dialog.waitFor({ state: "visible", timeout: 30_000 });
+    let clicked = false;
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      clicked = await page.evaluate(() => {
+        const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+        const customDialog = dialogs.find((candidate) =>
+          /custom date and time/i.test(candidate.innerText || candidate.textContent || ""),
+        );
+        if (!customDialog) return false;
+        const send = Array.from(customDialog.querySelectorAll<HTMLButtonElement>("button")).find(
+          (button) => (button.innerText || button.textContent || "").trim() === "Send",
+        );
+        if (!send || send.disabled) return false;
+        send.click();
+        return true;
+      });
+      if (clicked) break;
+      await page.waitForTimeout(500);
     }
-
-    await confirm.click({ timeout: 45_000 });
-    await dialog.waitFor({ state: "hidden", timeout: 60_000 }).catch(() => {});
-    await this.waitForBlockingDialogToClear(page);
+    if (!clicked) throw new Error("Could not directly click Outlook custom scheduling Send button");
+    await dialog.waitFor({ state: "hidden", timeout: 60_000 });
+    await this.waitForBlockingDialogToClear(page, false);
   }
 
   protected async uiVerifySent(page: Page): Promise<boolean> {
-    // After a successful send the compose surface closes — the message body
-    // textbox and Send button detach. Treat that as confirmation.
-    const sendBtn = page.getByRole("button", { name: "Send", exact: true }).first();
-    return sendBtn
-      .waitFor({ state: "hidden", timeout: 30_000 })
-      .then(() => true)
-      .catch(() => false);
+    // Verify the active/latest compose rather than the first Send button on the
+    // page; Outlook can retain older draft panes in the DOM. Requiring both the
+    // body and Send button to disappear favors a safe false-negative over
+    // incorrectly logging an open draft as scheduled.
+    const body = this.currentComposeBody ?? page.getByRole("textbox", { name: "Message body" }).last();
+    const sendBtn =
+      this.currentComposeSendButton ?? page.getByRole("button", { name: "Send", exact: true }).last();
+    const [bodyHidden, sendHidden] = await Promise.all([
+      body.waitFor({ state: "hidden", timeout: 30_000 }).then(() => true).catch(() => false),
+      sendBtn.waitFor({ state: "hidden", timeout: 30_000 }).then(() => true).catch(() => false),
+    ]);
+    return bodyHidden && sendHidden;
   }
 }
