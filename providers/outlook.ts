@@ -98,6 +98,34 @@ export class OutlookProvider extends BaseProvider {
   }
 
   protected async uiComposeEmail(page: Page, input: ComposeEmailInput): Promise<void> {
+    // Outlook can leave the custom-time picker portal mounted after a verified
+    // scheduled send. It is safe to dismiss only when no compose body exists;
+    // never press Escape while a draft is open.
+    const latestComposeBody = page.getByRole("textbox", { name: "Message body" }).last();
+    if (!(await latestComposeBody.isVisible({ timeout: 250 }).catch(() => false))) {
+      await page.evaluate(() => {
+        for (const portal of Array.from(document.querySelectorAll<HTMLElement>('[data-portal-node="true"]'))) {
+          const isCalendarReminder =
+            !!portal.querySelector('[id^="reminderButton-"]') ||
+            /\b\d{1,2}:\d{2}\s*(AM|PM)\b/i.test(portal.innerText || "");
+          const isMailDialog = /discard message|discard this draft|custom date and time/i.test(
+            portal.innerText || "",
+          );
+          if (isCalendarReminder && !isMailDialog) {
+            portal.style.pointerEvents = "none";
+          }
+        }
+      });
+      const search = page
+        .getByRole("searchbox")
+        .or(page.getByPlaceholder(/search/i))
+        .first();
+      if (await search.isVisible({ timeout: 500 }).catch(() => false)) {
+        await search.click({ force: true }).catch(() => {});
+      }
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(500);
+    }
     await this.waitForBlockingDialogToClear(page);
     await this.clickCompose(page);
     await this.waitForBlockingDialogToClear(page);
@@ -106,7 +134,9 @@ export class OutlookProvider extends BaseProvider {
     // avoids matching the "To Do" app icon in the left rail).
     const to = page.getByLabel("To", { exact: true }).last();
     await to.waitFor({ timeout: 30_000 });
-    await to.click();
+    await to.click({ timeout: 10_000 }).catch(async () => {
+      await to.evaluate((el) => (el as HTMLElement).focus());
+    });
     await to.fill(input.to);
     await page.keyboard.press("Enter");
     // Close the people-picker suggestion popup so it can't overlay the Cc field.
@@ -257,6 +287,9 @@ export class OutlookProvider extends BaseProvider {
     }
 
     const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    await page
+      .screenshot({ path: "campaigns/outlook-custom-dialog-failure.png", fullPage: true })
+      .catch(() => {});
     throw new Error(`Could not open Outlook custom scheduling dialog after 3 attempts: ${detail}`);
   }
 
@@ -317,7 +350,6 @@ export class OutlookProvider extends BaseProvider {
     // button without a useful accessible name. Require an explicit click and
     // a confirmed dialog close; never infer scheduling from a disappearing or
     // rerendered dialog.
-    await dialog.waitFor({ state: "visible", timeout: 30_000 });
     let clicked = false;
     for (let attempt = 1; attempt <= 20; attempt += 1) {
       clicked = await page.evaluate(() => {
